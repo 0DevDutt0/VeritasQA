@@ -110,7 +110,7 @@ These contracts are fixed now so that later phases can rely on them.
 - Each question type has an explicit list of required checks. Any required check that fails or stays unresolved leads to abstention (`SPEC §9`).
 - Acceptance gates are explicit booleans in a configuration file (for example `require_negation_validation = true`). They are not similarity-score thresholds. Calibration happens only on the development split, and the held-out split is used once (`SPEC §9`, `§11`).
 - Conflicts are never resolved silently. Precedence applies only when the document states it explicitly (`SPEC §8`).
-- **Retrieval expansions never count as support.** A synonym or stem match can only add a candidate. The entity, value, negation and condition checks read raw text and must find the question's terms in it. An expansion that does not appear in the raw text leads to abstention, which is the intended conservative outcome. Whether reviewed rules may ever count toward acceptance is an open owner decision (Q9 in `PROGRESS.md`). The default is no.
+- **Retrieval expansions never count as support.** A synonym or stem match can only add a candidate. The entity, value, negation and condition checks read raw text and must find the question's terms in it. An expansion that does not appear in the raw text leads to abstention, which is the intended conservative outcome. The owner decided on 2026-11-04 that reviewed rules never count toward acceptance (`PROGRESS.md`, D38). A rule-reached candidate is `expansion_only` and no check may accept it as support.
 
 ## 6. Storage schema (P3, revised)
 
