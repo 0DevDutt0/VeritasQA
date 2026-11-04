@@ -1,0 +1,48 @@
+# VeritasQA structure configuration (read by app/document_structure/config.py; unknown keys are rejected).
+#
+# Every value is a documented heuristic for segmenting P1 text into evidence units. None is an
+# acceptance threshold, and none is calibrated on a real document (blocker B1, decision D26).
+# Calibration belongs to P9b and uses the development split only.
+
+[structure]
+# Font sizes are rounded to this grid (points) before any comparison. Real documents use sizes
+# such as 8.9 and 9.1 for one font, so an exact comparison would split one style into several.
+line_size_quantum = 0.5
+
+# The body size is the most common size, weighted by characters, over body lines with at least
+# this many characters. Short table cells and rule lines are excluded.
+body_stat_min_chars = 40
+
+# A line is a size-based heading when its size is at least this many points above body size.
+heading_size_delta = 1.0
+# A heading has at most this many characters, and does not end in a comma, semicolon or full stop.
+heading_max_chars = 120
+
+# Two body lines in one block are one paragraph unless the vertical gap between them exceeds this
+# multiple of the line height.
+# Measured on the arXiv corpus document: normal leading is about 0.5 of the line height, and
+# paragraph spacing is about 1.7 of it. A gap above 1.0 line height starts a new paragraph.
+paragraph_gap_factor = 1.0
+# A line shorter than this share of its block's width ends a paragraph when it also ends in
+# terminal punctuation.
+short_line_fraction = 0.7
+
+# A footnote is a body line at least this many points smaller than body size, in the bottom part
+# of the page given by footnote_band_fraction.
+footnote_size_delta = 1.0
+footnote_band_fraction = 0.25
+
+# A line that holds only digits or roman numerals, in the top or bottom part of the page given by
+# furniture_band_fraction, is page furniture (a page number), not body text.
+furniture_band_fraction = 0.08
+
+# A P1 line belongs to a table cell when its centre lies inside the cell box, widened by this
+# tolerance (points).
+table_cell_tolerance = 1.0
+# When a table box holds at least 3 text lines, at least this share of them must belong to cells.
+# A lower share means the pdfplumber geometry and the PyMuPDF text disagree, and the table is skipped.
+table_min_claim_share = 0.5
+
+# A font size becomes a heading level only when at least this many heading lines carry it. A single
+# stray line in a larger size (a figure label, a cover title) would otherwise push every later level down.
+heading_level_min_count = 2

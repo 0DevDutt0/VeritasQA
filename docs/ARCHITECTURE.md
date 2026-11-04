@@ -255,3 +255,67 @@ Decision order: OCR text; then the no-text rules (image coverage, then ink); the
 **OCR.** Runs only when `ocr_mode = "auto"` and `tesseract` is on PATH, or when a command is passed explicitly (tests). It is an argument list with no shell. The language is validated against `^[A-Za-z0-9_+]+$`. Failure or empty output keeps the page `SCANNED` with `ocr_failed` or `ocr_no_text`. When OCR cannot run, the reason is `ocr_unavailable` (no binary) or `ocr_disabled` (mode `off`). OCR text has page-level coordinates only.
 
 **Issue vocabulary.** An issue has a `code`, a `severity` (`info` or `warning`) and a `detail` that states the measured values. Only `warning` severity can change a page status. The codes are listed in `app/ingestion/models.py`.
+
+## 11. Structure and provenance contracts (P2)
+
+Implemented in `app/common/text.py` (normalization) and `app/document_structure/` (structure). Thresholds are in `config/structure.toml`, section `[structure]`, loaded by `app/document_structure/config.py` with Pydantic (`extra="forbid"`). They are documented heuristics, uncalibrated on a real document (D26). The file is separate from `config/default.toml`, so the P1 configuration and its tests do not change.
+
+**Entry point.** `build_structure(extracted, pdf_path, *, config=None) -> DocumentStructure`. `extracted` is an `ExtractedDocument` with `raw_text` in memory (from `extract_document` or `load_outputs`). `pdf_path` is needed only for table geometry, which pdfplumber reads. Its SHA-256 must equal `extracted.sha256`, or the call raises `StructureError`. The PDF is never read for text: all evidence text comes from P1's `raw_text`.
+
+**Normalization.** `normalize_with_map(raw) -> NormalizedText`. `NormalizedText.text` is the index form. `NormalizedText.spans[i]` is the half-open raw range `(start, end)` that output character `i` came from. `raw_range(start, end)` maps an index range back to raw offsets.
+- Processing unit: a base character with the combining marks that follow it. The unit is translated and NFKC-normalized as one string, and every output character maps to the unit's whole raw range. Composition therefore works across combining marks.
+- Translation: curly quotes to `'` and `"`; dash variants (U+2010 to U+2015, U+2212) to `-`. Deleted outright: U+00AD (soft hyphen), U+200B, U+200E, U+200F and U+FEFF.
+- Whitespace: newlines and other whitespace become one space, and runs of spaces collapse to one. The surviving space maps to its own raw range.
+- Dehyphenation (index text only): a hyphen (`-`, U+2010, U+2011 or U+00AD) followed by one `\n` and a lowercase letter is removed together with the newline.
+- Guarantees: spans are monotonic, and the index text is a pure function of the raw text.
+
+**Document structure.** `DocumentStructure(document_id, sections, units, table_cells)`.
+- `Section(section_id, document_id, level, title, parent_section_id, start_pdf_page, heading_id)`. Section IDs are `{document_id}:s{n:04d}` in document order, starting at 1.
+- `EvidenceUnit` fields: `evidence_id`, `document_id`, `pdf_page`, `printed_page`, `ordinal`, `content_type`, `raw_text`, `source_spans`, `index_text`, `heading_text`, `section_id`, `parent_id`, `prev_id`, `next_id`, `bbox`, `table_id`, `row_index`, `col_index`, `row_header`, `col_header`, `caption`, `extraction_quality`, `body_retrieval`, `derived`.
+- `content_type` is one of `heading`, `paragraph`, `list_item`, `caption`, `footnote`, `table_cell`, `table_row`, `header`, `footer`, `page_text`.
+- `ordinal` is the unit's position on its page, counted from 1. `evidence_id` follows ARCHITECTURE §3 (D5).
+- `source_spans` are half-open offsets into the page's `raw_text`. Its invariant is `"\n".join(raw_text[s:e] for s, e in source_spans) == unit.raw_text`. A contiguous unit has one span. A table cell whose lines are not adjacent has several. Quotations come only from `raw_text`.
+- `index_text` is a normalized derivative of `raw_text`, used only for retrieval. A table cell's `index_text` is `caption | row_header | col_header | value` (empty parts skipped), so a number is never indexed without its row and column.
+- `heading_text` is the chain of section titles, joined with ` > `.
+- `extraction_quality` inherits the page's quality (`verified`, `warning` or `unverified`). It is forced to `unverified` when any line of the unit has `hidden_chars > 0` (D20).
+- `body_retrieval` is `false` for `header` and `footer` units. They are kept and never deleted.
+- `derived` is `true` only for `table_row` units. Their `raw_text` is the verbatim cell text in column order, so their spans point at real text. Their `index_text` is generated (`caption | row_header | col_header = value; ...`). P6 must never quote a derived `index_text`.
+- `prev_id` and `next_id` chain every unit of the document in page order, across pages, including derived rows.
+
+**Pages.** Structure is built only for `verified` and `warning` pages.
+- A page of any other status produces one `page_text` unit per P1 text block (`raw_text` of the block, `extraction_quality = unverified`). It has no sections, headings, tables or lists. Its header and footer blocks keep their roles.
+- Image blocks produce no units.
+- Units are emitted in P1's block order: headers, then body blocks, then footers.
+
+**Body size and headings.**
+- Body size is the character-weighted mode of span sizes, quantized to 0.5 pt, over body lines with at least `body_stat_min_chars` letters.
+- A candidate heading is a body line that is (a) at least `heading_size_delta` pt above body size, or (b) bold at body size, with at most `heading_max_chars` characters, not ending in `.`, `,` or `;`, and not vertical (its box is taller than it is wide).
+- A line holding only a section number (`^\d+(\.\d+)*\.?$`) is merged with the following heading line when that line starts within two line heights of it, in any block.
+- Levels: a size is a level only when at least `heading_level_min_count` (2) heading lines carry it, so one stray line in a larger size does not push the others down. Qualifying sizes rank by size, largest first, starting at 1. Every other heading follows them, at the depth of its number label (`1` is 1, `1.1` is 2), or at depth 1 without a label.
+
+**Other units.**
+- Captions begin with `Table` or `Figure` followed by a number. A caption joins the following lines of its block.
+- A list item begins with a bullet glyph or an enumerator. A bullet-only line joins the next text line, in any block. A list item's `parent_id` is the nearest preceding `paragraph` or `heading` whose text ends with `:`, in the same section.
+- A paragraph is a run of body lines of one column. Lines in different P1 blocks of the same column can continue a paragraph, because PyMuPDF often gives one-line blocks (474 of the 496 body blocks on pages 1 to 10 of the arXiv corpus document). A break occurs when the column changes, when the vertical gap exceeds `paragraph_gap_factor` (1.0) times the line height, when a line shorter than `short_line_fraction` of its column's widest line ends with terminal punctuation, or when a new list item or caption starts. A first-line indent also breaks a paragraph.
+- Footnotes are body lines smaller than body size by `footnote_size_delta` pt, in the bottom `footnote_band_fraction` of the page. A footnote starts with a marker: a number, or one of `*` `∗` `†` `‡` `§` `¶`, followed by a space, a full stop or a parenthesis. A smaller line of the same column continues it.
+- A body line that holds only digits or roman numerals, in the top or bottom `header_footer_band_fraction` band, is a page furniture unit (`header` or `footer`, `body_retrieval = false`).
+- Lines inside a vertical or rotated box are not headings.
+
+**Tables.** Cell geometry comes from pdfplumber `find_tables()` (lines strategy, as in P1).
+- Preconditions: the page is not rotated, and the page box starts at the origin. When at least 3 text lines have their centre inside the table box, at least `table_min_claim_share` (0.5) of them must fall in cells. Otherwise the table is skipped and the page gets `table_geometry_mismatch` (warning). Its lines stay paragraphs.
+- A P1 line belongs to a cell when its centre lies inside the cell box (1 pt tolerance). Lines outside every cell stay paragraphs.
+- The first row is the header row. Its cells are `table_cell` units with `row_index` 0, and they supply `col_header` to the cells below.
+- For each body row there is a `table_row` unit (`derived`), then one `table_cell` unit per non-empty cell, in column order. A cell's `parent_id` is its row unit. Its `row_header` is the text of the row's first cell, and its `col_header` is the header cell of its column.
+- `table_id` is `{document_id}:p{page:04d}:t{n:02d}`, numbered per page from 1. The nearest caption on the same page, within 15% of the page height from the table box, is attached as `caption`.
+- `table_header_uncertain` (warning) is raised when every header cell is numeric. Such cells become `warning`.
+- A `TableCell` record mirrors ARCHITECTURE §6: `evidence_id`, `table_id`, `row_index`, `col_index`, `row_header`, `col_header`, `caption`.
+
+**Invariants (tested).** For every document: each unit's quotation invariant holds. Every non-whitespace raw character of a structured page is covered by at least one non-derived unit. No two non-derived units share a raw character. Ordinals are contiguous per page. The `prev_id`/`next_id` chain is consistent. Section parents exist and have a lower level. A unit with a hidden line is never `verified`. The output is deterministic.
+
+**Known limits (P2).**
+- Reading order is P1's (D22). P1's column clustering can split a paragraph's short last line into another column. The corpus shows this in NIST SP 800-37r1 (page 20). P2 keeps P1's order and marks such pages `warning`, not `verified`.
+- P1 does not detect running heads on the arXiv corpus document, so their text stays body text, and P2's furniture rule covers only page numbers.
+- Heading detection is font-based. A heading set in the body's font without bold or a numbered label is not detected.
+- Font sizes above body size are not always headings. On the arXiv corpus document, figure labels at 10 to 13 pt qualify as heading levels and push the section headings down to level 5 or 6. The rule is documented and uncalibrated (D26).
+- Pdfplumber boxes that disagree with the text are skipped. On NIST SP 800-37r1, the RMF figure boxes on pages 81 to 85 (eight tables) are skipped for this reason, and their text stays paragraphs.
+- Cover-page title lines in separate blocks become separate headings (NIST SP 800-37r1, page 1).

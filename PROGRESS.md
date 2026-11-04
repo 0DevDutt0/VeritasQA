@@ -6,7 +6,7 @@
 
 Say **"continue"**. Then work through the first phase below whose status is `in progress` or `not started`, and follow the per-phase workflow. A phase whose status is `blocked` on an owner decision stops the run: report the open decision and wait. Do not start a later phase.
 
-**Current resume point (2026-11-04, after P1):** P0-REV, P0-CLEAN and P1 are complete. **P2 is next.** It starts on the next "continue". Q4 (the PyMuPDF licence), Q8 and Q9 are still open, and Q9 must be answered before P4 is built. Q3 (install Tesseract) decides whether the OCR path is ever run for real (B2).
+**Current resume point (2026-11-04, after P2):** P0-REV, P0-CLEAN, P1 and P2 are complete. **P3 is next.** It starts on the next "continue". Q4 (the PyMuPDF licence), Q8, Q9 and Q10 are still open, and Q9 must be answered before P4 is built. Q3 (install Tesseract) decides whether the OCR path is ever run for real (B2).
 
 | Item | Value |
 | --- | --- |
@@ -46,7 +46,7 @@ Say **"continue"**. Then work through the first phase below whose status is `in 
 | P0-REV | V1 revision: deterministic, LLM-free and embedding-free architecture, dependency plan and Phase 0 checklist (D17) | complete | `pytest -q` (full suite), `scripts/validate_environment.py` |
 | P0-CLEAN | Owner-approved cleanup of the GPU, model, NLP and fuzzy-matching layers; V1 venv rebuilt and lock regenerated (D19) | complete | `pytest -q` in a fresh V1 venv, `pip check`, deny-list tests (`tests/unit/test_p0_dependencies.py`) |
 | P1 | PDF ingestion, extraction and page quality | complete on synthetic PDFs; the real-document check is blocked (B1) and the real OCR check is blocked (B2) | `pytest -q tests/unit/test_p1_*.py tests/integration/test_p1_*.py` |
-| P2 | Structure reconstruction, provenance and segmentation | not started | `pytest -q tests/unit/test_p2_*.py tests/integration/test_p2_*.py` |
+| P2 | Structure reconstruction, provenance and segmentation | complete-with-limitations (synthetic fixtures and public-corpus property checks pass; structure quality on real documents is unmeasured, B1) | `pytest -q tests/unit/test_p2_*.py tests/integration/test_p2_*.py` |
 | P3 | SQLite schema, FTS5 and exact phrase retrieval | not started | `pytest -q tests/unit/test_p3_*.py tests/integration/test_p3_*.py` |
 | P4 | BM25 retrieval and candidate ranking | not started | `pytest -q tests/unit/test_p4_*.py tests/integration/test_p4_*.py` |
 | P5 | Question analysis and extractive selection | not started | `pytest -q tests/unit/test_p5_*.py tests/integration/test_p5_*.py` |
@@ -79,6 +79,7 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
 - **Q7. Closed (2026-11-04, owner): approved.** P0-CLEAN ran as proposed, with the Q6 choices above. The shared pip cache (18 GB) and the shared Hugging Face cache (9.7 GB) are not project-owned, and they were not touched.
 - **Q8. SPEC wording.** Keep `docs/SPEC.md` verbatim with the repository precedence note (D18), or re-issue the specification with the V1 revision? Recommendation: keep it verbatim.
 - **Q9. Synonym rules and acceptance.** The default stays conservative. An expansion can widen the candidate set, but it cannot satisfy the entity, value, negation or condition checks, which run on raw text (`docs/ARCHITECTURE.md` §4 and §5). Should reviewed rules ever count toward acceptance? A yes needs a per-rule flag such as `verification_eligible` (default off), a regression set that shows no false acceptances, and a decision recorded here. Recommendation: keep the default off. Answer this before P4 is built.
+- **Q10. Public QA corpus (D27).** Should the three public PDFs in `data/corpus/public/` be committed, or kept local? The two NIST documents are US federal works. The licence of the arXiv paper (2506.12594) was not checked. Recommendation: keep the PDFs local (D7) and track only the manifest and the README.
 
 ## Decisions log
 
@@ -110,6 +111,11 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
 | D24 | **OCR (P1).** Tesseract runs only on `SCANNED` pages, in `ocr_mode = "auto"` and only when the binary is on PATH. It is called through an argument list with no shell. Its text is `OCR_TEXT` and unverified. The tests use a stub that checks the argument list. The real binary is not installed (B2). | SPEC §3A allows an OCR fallback. Its output is not trusted (SPEC §1). |
 | D25 | **Tables (P1).** Table detection uses only pdfplumber's `lines` strategy. A ruled table makes its page a WARNING, and its cell text is read in column order until P2 rebuilds the rows. Borderless tables are not detected. | On a synthetic two-column page, the `text` strategy reported a false table. A borderless table is a known gap. |
 | D26 | **Classification thresholds (P1).** Every threshold in `config/default.toml` is a documented heuristic for flagging a page. None is an acceptance threshold, and none is calibrated on a real document (B1). P9b calibrates them on the development split only. | SPEC §9 forbids arbitrary thresholds. The values are config, recorded, and reviewed later. |
+| D27 | **Public QA corpus (2026-11-04, owner request).** Three public documents are kept in `data/corpus/public/` for QA and regression checks: NIST SP 800-30r1 (95 pages), NIST SP 800-37r1 (102 pages) and arXiv 2506.12594 (95 pages). The PDFs are git-ignored by `*.pdf` (D7). `manifest.json` (source URL, SHA-256, size, pages, checks) and `data/corpus/README.md` are tracked. Page count was used to choose the set; the owner then said it does not matter for this corpus. None of these documents stands in for the owner's PDF (B1). | The owner asked for public, safe PDFs of about 100 pages for QA, kept in the project. The licence of the arXiv paper was not checked, so the PDFs stay local. |
+| D28 | **Provenance of multi-span units (P2).** A unit's `source_spans` are half-open offsets into the page's `raw_text`. Its `raw_text` is the newline join of those spans, and the join is checked for every unit. A table cell whose lines are not adjacent has several spans. A `table_row` unit is `derived`: its spans point at real text, its `index_text` is generated, and P6 must never quote the generated text. | A table cell is not always one contiguous slice of the raw text. Verification needs exact quotations, and a generated row summary must not pass as evidence (SPEC §1, §12). |
+| D29 | **Unverified pages get block units only (P2).** A page whose status is not OK or WARNING has no sections, headings or tables. Each of its text blocks becomes one `page_text` unit, with `extraction_quality = unverified`. The page gets a `page_unstructured` issue. | SPEC §1 forbids trusting unverified text, so no structure is inferred from it. |
+| D30 | **Structure thresholds in their own file (P2).** The `[structure]` section is in `config/structure.toml`. `config/default.toml` and the P1 tests are unchanged. Every threshold is a documented, uncalibrated heuristic (D26). Two were set from the corpus: `paragraph_gap_factor = 1.0` and the 0.5 pt size grid. | The P1 loader rejects unknown keys by appending to the file, so a second section there would couple the two configurations. |
+| D31 | **P1 reading order is not changed in P2.** The corpus shows P1 misplacing some short lines (NIST SP 800-37r1, page 20). P2 keeps P1's order, and those pages stay `warning`. A fix changes P1's column clustering, so it needs its own decision (SPEC §12) and P1 regression tests. | This is a judgement call. The advisor asked for a P1 fix only where it distorts P2's input, and this one does, but the repair changes P1's contract. It is recorded here so the owner can overrule it. |
 
 ---
 
@@ -322,6 +328,7 @@ No `nvidia-*` package is installed. The CUDA runtime files (cudart, cublas, cudn
   - Footnotes are not identified in P1. SPEC §3A lists them, and the plan gives them to P2. DoD 2 therefore does not yet cover them.
   - Header and footer roles come from a text key with digits collapsed. A numeric row that repeats at a page edge can be tagged as a header. The role is a flag, and P2 must not delete the unit.
   - Q4 (the PyMuPDF licence) is still open. This phase uses the library as pinned.
+  - Corpus evidence (P2, 2026-11-04): on the three public documents, P1 flags reading order as uncertain on 87 of 95, 94 of 95 and 101 of 102 pages. On NIST SP 800-37r1, page 20, a bullet's last line is read after the next bullet's marker. P2 keeps P1's order (D31).
 - **Handoff to P2:**
   - Load a written report with `app.ingestion.load_outputs(report_path)`, which checks each page-text file against `raw_text_sha256`. The JSON alone does not validate, because it omits `raw_text`.
   - A line with `hidden_chars > 0` is unverified (D20). Only `OK` pages are `verified`. A `WARNING` page carries `warning` quality, and every other status is `unverified`.
@@ -330,7 +337,9 @@ No `nvidia-*` package is installed. The CUDA runtime files (cudart, cublas, cudn
 
 ### P2 — Structure reconstruction, provenance and evidence segmentation
 
-- **Status:** not started
+- **Status:** complete-with-limitations (2026-11-04). The synthetic fixtures and the three public documents pass every property check. Heading, paragraph and table quality on real documents is unmeasured (B1, D26).
+- **Branch:** `phase/p2-structure`, fast-forward merged into `main` (commit message starting `P2:`).
+- **Contracts:** `docs/ARCHITECTURE.md` §11, written before the code and corrected against the corpus probes. The signature is `build_structure(extracted, pdf_path)`: the PDF is needed only for table geometry, and its SHA-256 must match the report.
 - **SPEC pointers:** §3B (structure and segmentation), §2.3 (provenance), §6 (answer context), §16 DoD 3
 - **Scope:**
   - **Normalization (reversible):** `app/common/text.py` `normalize_with_map(raw) -> NormalizedText(text, index_to_raw)`. NFKC per character, with each output character mapped back to its raw offset. Unify quote and dash variants, map NBSP to space, remove soft hyphens, and dehyphenate line-end breaks in index text only. Test ligatures, NBSP, soft hyphen, curly quotes, combining marks, CJK, Arabic (RTL).
@@ -340,8 +349,27 @@ No `nvidia-*` package is installed. The CUDA runtime files (cudart, cublas, cudn
   - **Neighbours:** `prev_id`, `next_id`, `section_id`, `parent_id`, bounding box, `content_type`, inherited `extraction_quality`.
 - **Interfaces to expose:** `app.common.text.normalize_with_map`; `app.document_structure.build_structure(extracted) -> DocumentStructure(sections, units, table_cells)`; `EvidenceUnit` (Pydantic) with the fields in ARCHITECTURE §3.
 - **Exit criteria:** `pytest -q tests/unit/test_p2_*.py tests/integration/test_p2_*.py`
-- **Result:** not run yet
-- **Limitations (expected):** heading detection depends on font metadata; scanned or garbled pages produce no reliable structure.
+- **Done:**
+  - `app/common/text.py`: `normalize_with_map` (a raw range for every index character; NFKC over each base character with its combining marks; quote and dash unification; soft hyphen and invisible marks; line-end dehyphenation, index text only), and `normalize_text`.
+  - `app/document_structure/`: `config.py` (`config/structure.toml`, Pydantic, `extra="forbid"`), `models.py` (`EvidenceUnit`, `Section`, `TableCell`, `StructureIssue`, `DocumentStructure`), `tables.py` (pdfplumber boxes and line-to-cell assignment), `segment.py` (classification, paragraph and list grouping, heading levels), `build.py` (`build_structure`, the emitter, sections, table units, neighbours), `errors.py`.
+  - Tests: `tests/unit/test_p2_normalization.py`, `test_p2_config.py`, `test_p2_tables.py`; `tests/integration/test_p2_structure.py` (synthetic fixture in `tests/fixtures/structure_pdfs.py`); `tests/integration/test_p2_corpus.py` (marker `public_corpus`, which skips when a PDF is absent); property checks shared through `tests/fixtures/structure_checks.py`.
+- **Result (recorded from runs, 2026-11-04):**
+  - Exit criteria `pytest -q tests/unit/test_p2_*.py tests/integration/test_p2_*.py`: `51 passed in 36.27s`. The six corpus tests take about 35 s of that.
+  - Full suite `pytest -q -rs`: `189 passed, 1 skipped in 44.56s`. The skip is `requires_tesseract`, as before. `pip check`: No broken requirements found.
+  - Public corpus (not the owner's PDF; property checks only): quotation mismatches 0, uncovered non-space text 0, overlapping non-derived units 0, on all three documents.
+    - arXiv 2506.12594: 1457 units, 98 sections, 22 table cells, 0 issues.
+    - NIST SP 800-30r1: 3770 units, 71 sections, 1766 table cells; issues `page_unstructured` 1, `table_header_uncertain` 2.
+    - NIST SP 800-37r1: 2774 units, 71 sections, 966 table cells; issues `page_unstructured` 1, `table_geometry_mismatch` 8.
+  - Problems found by the tests and probes, and fixed before this result: the short-line rule compared a line with its own one-line block, not with its column (D30); paragraphs could not continue across P1's one-line blocks (474 of 496 body blocks on arXiv pages 1 to 10 hold one line); the paragraph-gap factor was 0.4, but normal leading on arXiv is about 0.5 of the line height, so it is now 1.0; one stray line in a larger font had been pushing every later heading level down, so a size now needs two heading lines; footnotes now need a marker.
+- **Limitations:**
+  - Quality on real documents is unmeasured. No gold structure exists (B3), and every threshold is an uncalibrated heuristic (D26).
+  - Headings are font-based. On the arXiv document, figure labels at 10 to 13 pt qualify as heading levels and push the section headings down to level 5 or 6. The cover-page title lines of NIST SP 800-37r1 become separate sections.
+  - Reading order is P1's. P1 misplaces some short lines (NIST SP 800-37r1, page 20: the last line of one bullet is read after the next bullet's marker). Reading order is flagged uncertain on 87 of 95 pages (arXiv), 94 of 95 (NIST SP 800-30r1) and 101 of 102 (NIST SP 800-37r1), so most units are `warning`, not `verified` (D31).
+  - Tables: pdfplumber boxes that disagree with the text are skipped. On NIST SP 800-37r1, eight tables on pages 81 to 85 (RMF figures) were skipped. The first row of every table is taken as its header row.
+  - Running heads: P1 finds no repeating running head on the arXiv document, so the author line stays body text. The furniture rule covers digit-only lines only.
+  - No corpus document has page labels, so the printed-page case of D4 has no real example yet.
+  - A footnote without a marker stays a paragraph.
+- **Handoff to P3:** `build_structure(extracted, pdf_path)` returns a `DocumentStructure`. Quotations come only from `raw_text` through `source_spans`. `index_text` and `heading_text` are for FTS5. Never quote a `derived` row. Header and footer units have `body_retrieval = false`. Each table cell carries `table_id`, `row_index`, `col_index`, `row_header`, `col_header` and `caption` for the `table_cells` table (ARCHITECTURE §6).
 
 ### P3 — SQLite schema, FTS5 and exact phrase retrieval
 
@@ -466,7 +494,7 @@ No `nvidia-*` package is installed. The CUDA runtime files (cudart, cublas, cudn
 | --- | --- | --- |
 | 1 | 100-page PDF processed and indexed | blocked (B1) |
 | 2 | Extraction issues detected and exposed | P1 complete on synthetic PDFs; the real-document check is blocked (B1) |
-| 3 | Evidence provenance accurate | P2 |
+| 3 | Evidence provenance accurate | P2 complete: the provenance invariants hold on the synthetic fixtures and on the three public documents. Accuracy on the owner's document is blocked (B1). |
 | 4 | BM25 and exact phrase retrieval reliable | P3, P4 |
 | 5 | Supported answer types use extractive selection | P5 |
 | 6 | Exact quotations and page citations verifiable | P6 |
