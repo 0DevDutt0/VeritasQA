@@ -32,6 +32,13 @@ def check_invariants(extracted: ExtractedDocument, structure: DocumentStructure)
             assert 0 <= start < end <= len(page.raw_text), f"{unit.evidence_id} has a span outside its page"
         quoted = "\n".join(page.raw_text[start:end] for start, end in unit.source_spans)
         assert quoted == unit.raw_text, f"{unit.evidence_id}: the spans do not reproduce the unit text"
+        if len(unit.source_spans) == 1:
+            start, end = unit.source_spans[0]
+            assert page.raw_text[start:end] == unit.raw_text, f"{unit.evidence_id}: a single span must be verbatim"
+        else:
+            assert unit.content_type in (ContentType.TABLE_CELL, ContentType.TABLE_ROW), (
+                f"{unit.evidence_id}: only table units may have several spans (non-adjacent lines)"
+            )
         if not unit.body_retrieval:
             assert unit.content_type in (ContentType.HEADER, ContentType.FOOTER), unit.evidence_id
         if unit.derived:

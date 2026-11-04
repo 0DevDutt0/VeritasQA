@@ -88,6 +88,7 @@ class StructureIssue(BaseModel):
 class DocumentStructure(BaseModel):
     structure_version: str = STRUCTURE_VERSION
     document_id: str
+    config_sha256: str = ""
     sections: list[Section] = Field(default_factory=list)
     units: list[EvidenceUnit] = Field(default_factory=list)
     table_cells: list[TableCell] = Field(default_factory=list)

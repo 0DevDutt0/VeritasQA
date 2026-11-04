@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Sequence
 
 from app.common.text import normalize_text
-from app.document_structure.config import StructureConfig, load_structure_config
+from app.document_structure.config import StructureConfig, config_fingerprint, load_structure_config
 from app.document_structure.errors import StructureError
 from app.document_structure.models import (
     ContentType,
@@ -68,13 +68,14 @@ def _union(boxes: Sequence[Box]) -> Box:
 
 
 def _spans(lines: Sequence[Line], raw: str) -> list[tuple[int, int]]:
-    """Raw offsets of the lines. Lines separated by exactly one newline in the raw text share a span."""
+    """Raw offsets of the lines. Lines whose raw gap holds only whitespace share one span, so a
+    paragraph that crosses P1 blocks stays one verbatim slice. The gap keeps the page's own separator."""
     spans: list[tuple[int, int]] = []
     for line in lines:
         start, end = line.raw_start, line.raw_end
         if raw[start:end] != line.text:
             raise StructureError("the raw text does not match an extracted line; the report is inconsistent")
-        if spans and start >= spans[-1][1] and raw[spans[-1][1] : start] == "\n":
+        if spans and start >= spans[-1][1] and raw[spans[-1][1] : start].strip() == "":
             spans[-1] = (spans[-1][0], end)
         else:
             spans.append((start, end))
@@ -146,9 +147,10 @@ class _Emitter:
         page = self._page()
         raw = page.raw_text
         spans = _spans(lines, raw)
-        text = "\n".join(line.text for line in lines)
-        if "\n".join(raw[start:end] for start, end in spans) != text:
-            raise StructureError("the source spans do not reproduce the unit text")
+        for line in lines:
+            if not any(start <= line.raw_start and line.raw_end <= end for start, end in spans):
+                raise StructureError("a line of the unit lies outside its source spans")
+        text = "\n".join(raw[start:end] for start, end in spans)
         self.ordinal += 1
         unit = EvidenceUnit(
             evidence_id=f"{self.document_id}:p{page.pdf_page:04d}:u{self.ordinal:04d}",
@@ -376,6 +378,7 @@ class _Emitter:
     def result(self) -> DocumentStructure:
         return DocumentStructure(
             document_id=self.document_id,
+            config_sha256=config_fingerprint(self.config),
             sections=self.sections,
             units=self.units,
             table_cells=self.table_cells,

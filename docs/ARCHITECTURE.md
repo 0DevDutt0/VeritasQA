@@ -274,7 +274,7 @@ Implemented in `app/common/text.py` (normalization) and `app/document_structure/
 - `EvidenceUnit` fields: `evidence_id`, `document_id`, `pdf_page`, `printed_page`, `ordinal`, `content_type`, `raw_text`, `source_spans`, `index_text`, `heading_text`, `section_id`, `parent_id`, `prev_id`, `next_id`, `bbox`, `table_id`, `row_index`, `col_index`, `row_header`, `col_header`, `caption`, `extraction_quality`, `body_retrieval`, `derived`.
 - `content_type` is one of `heading`, `paragraph`, `list_item`, `caption`, `footnote`, `table_cell`, `table_row`, `header`, `footer`, `page_text`.
 - `ordinal` is the unit's position on its page, counted from 1. `evidence_id` follows ARCHITECTURE §3 (D5).
-- `source_spans` are half-open offsets into the page's `raw_text`. Its invariant is `"\n".join(raw_text[s:e] for s, e in source_spans) == unit.raw_text`. A contiguous unit has one span. A table cell whose lines are not adjacent has several. Quotations come only from `raw_text`.
+- `source_spans` are half-open offsets into the page's `raw_text`. The unit's `raw_text` is the newline join of its spans. Lines whose raw gap holds only whitespace share one span, so a paragraph that crosses P1 blocks stays one verbatim slice, with the page's own separator inside it. Only table cells and rows can have several spans, because their lines are not adjacent. A single-span unit satisfies `raw_text == page_raw_text[start:end]`. P3 needs one `source_locations` row per span (ARCHITECTURE §6).
 - `index_text` is a normalized derivative of `raw_text`, used only for retrieval. A table cell's `index_text` is `caption | row_header | col_header | value` (empty parts skipped), so a number is never indexed without its row and column.
 - `heading_text` is the chain of section titles, joined with ` > `.
 - `extraction_quality` inherits the page's quality (`verified`, `warning` or `unverified`). It is forced to `unverified` when any line of the unit has `hidden_chars > 0` (D20).
@@ -310,7 +310,7 @@ Implemented in `app/common/text.py` (normalization) and `app/document_structure/
 - `table_header_uncertain` (warning) is raised when every header cell is numeric. Such cells become `warning`.
 - A `TableCell` record mirrors ARCHITECTURE §6: `evidence_id`, `table_id`, `row_index`, `col_index`, `row_header`, `col_header`, `caption`.
 
-**Invariants (tested).** For every document: each unit's quotation invariant holds. Every non-whitespace raw character of a structured page is covered by at least one non-derived unit. No two non-derived units share a raw character. Ordinals are contiguous per page. The `prev_id`/`next_id` chain is consistent. Section parents exist and have a lower level. A unit with a hidden line is never `verified`. The output is deterministic.
+**Invariants (tested).** For every document: each unit's spans reproduce its `raw_text`. A single-span unit is a verbatim slice of its page, and only table units have several spans. Every non-whitespace raw character of a structured page is covered by at least one non-derived unit. No two non-derived units share a raw character. Ordinals are contiguous per page. The `prev_id`/`next_id` chain is consistent. Section parents exist and have a lower level. A unit with a hidden line is never `verified`. The output is deterministic.
 
 **Known limits (P2).**
 - Reading order is P1's (D22). P1's column clustering can split a paragraph's short last line into another column. The corpus shows this in NIST SP 800-37r1 (page 20). P2 keeps P1's order and marks such pages `warning`, not `verified`.

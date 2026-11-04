@@ -5,6 +5,8 @@ Nothing is read at import time. The file is read only when a caller asks for it.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import tomllib
 from pathlib import Path
 
@@ -52,3 +54,9 @@ def load_structure_config(path: Path | str | None = None) -> StructureConfig:
         return StructureConfig.model_validate(section)
     except ValidationError as exc:
         raise StructureConfigError(f"invalid [structure] configuration in {target.name}: {exc}") from exc
+
+
+def config_fingerprint(config: StructureConfig) -> str:
+    """SHA-256 of the canonical JSON form of the thresholds. Recorded in every structure."""
+    canonical = json.dumps(config.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
