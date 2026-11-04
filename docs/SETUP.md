@@ -105,7 +105,7 @@ All results below come from commands that were run. Each row names the command.
 | Reranker on CUDA | `scripts\validate_models.py`, step 2 | `cuda:0`, output shape (2,), all values finite, max score difference against CPU 2.86e-06. |
 | Full test suite, project venv | `pytest -q` | **44 passed**, 0 skipped, in 9.42 s |
 | Clean baseline venv (`requirements.txt` only, no torch) | `pytest -q -rs` | **34 passed, 10 skipped** in 0.38 s. Skips: 3 GPU tests, 3 negative-path CUDA tests and 2 model CUDA tests (no PyTorch), and 2 NLP tests (no spaCy or NLTK). `pip check` clean. |
-| Fresh clone of `origin/main` (commit `c5d3f61`), section 3 run as written | `pytest -q -rs` at each step | Baseline step: **33 passed, 11 skipped**. The git-ignore test runs and passes in the clone. Skips name the missing torch and model files. After all steps: **44 passed** in 11.10 s. See section 6. |
+| Fresh clone of `origin/main` (commit `c5d3f61`), section 3 (its P0-ENV version) run as written | `pytest -q -rs` at each step | Baseline step: **33 passed, 11 skipped**. The git-ignore test runs and passes in the clone. Skips name the missing torch and model files. After all steps: **44 passed** in 11.10 s. See section 6. |
 | Fresh venv rebuilt from `requirements-validated.txt` (commit `f901558`, before the negative-path tests were added) | see section 6 | 41 passed in 13.89 s. Freeze identical to the lock. |
 
 ## 6. Full-lock rebuild: historical (the lock is superseded by D17)
@@ -129,7 +129,7 @@ VeritasQA-fresh\Scripts\python.exe -m pip install --extra-index-url https://down
 
 Which groups were rebuilt from scratch: the baseline (section 5, clean venv with `requirements.txt` only) and the whole validated environment, including the GPU and experimental groups (this section). During setup the GPU group was dry-run and then installed into the project venv, and the experimental group was installed into the project venv directly. The fresh rebuild reproduces that state exactly. The scratch venvs are in the session scratchpad, outside the repository.
 
-**Section 3 run as written, in a fresh clone of `origin/main`** (commit `c5d3f61`, PowerShell, `py -3.12` resolves to Python 3.12.10 on this machine). Every command in section 3 was executed, and every step exited 0:
+**Section 3 (its P0-ENV version) run as written, in a fresh clone of `origin/main`** (commit `c5d3f61`, PowerShell, `py -3.12` resolves to Python 3.12.10 on this machine). Every command in section 3 was executed, and every step exited 0:
 
 - Steps 1 and 2: `py -3.12 -m venv VeritasQA`, then the baseline install and `pytest -q`. Result: 33 passed, 11 skipped. The skips are the torch-dependent and model-file-dependent tests, which is correct before step 3. The git-ignore test runs and passes.
 - Steps 3 and 4: `requirements-gpu.txt`, then the experimental group under the constraints. `pip check` is clean, and torch reports 2.14.1+cu130 with CUDA 13.0 available.
@@ -165,7 +165,7 @@ The NLTK resource `punkt_tab` (sentence tokenizer, 77 extracted files, 10,885,33
 
 ## 9. V1 re-verification (2026-11-04, after D17)
 
-Section 3, steps 1 and 2, were run as written. The baseline ran in a scratch venv under the session scratchpad, outside the repository, built with the base Python 3.12.10 interpreter. No GPU and no model were installed in it.
+Steps 1 and 2 of section 3 were run in equivalent form, not verbatim. The venv was created under the session scratchpad, outside the repository, with the base Python 3.12.10 interpreter. The install used `pip install -q`, and the tests ran in the working tree rather than in a fresh clone. No GPU and no model were installed in the venv.
 
 | Check | Command | Result |
 | --- | --- | --- |

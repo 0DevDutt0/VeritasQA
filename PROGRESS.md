@@ -6,7 +6,7 @@
 
 Say **"continue"**. Then work through the first phase below whose status is `in progress` or `not started`, and follow the per-phase workflow. A phase whose status is `blocked` on an owner decision stops the run: report the open decision and wait. Do not start a later phase.
 
-**Current resume point (2026-11-04, D17):** P0-REV is complete. P0-CLEAN is `blocked` on the owner's decisions Q6 and Q7. P1 has not started, and it must not start until the owner has decided Q6 and Q7 and said to continue.
+**Current resume point (2026-11-04, D17):** P0-REV is complete. P0-CLEAN is `blocked` on the owner's decisions Q6 and Q7. Q8 and Q9 are also open, and Q9 must be answered before P4 is built. P1 has not started, and it must not start until the owner has decided Q6 and Q7 and said to continue.
 
 | Item | Value |
 | --- | --- |
@@ -81,6 +81,7 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
   - *scikit-learn and numpy (TF-IDF).* Recommendation: keep them as an optional, benchmark-only group outside `requirements.txt` and the acceptance path, as D17 allows.
 - **Q7. Approve the cleanup.** Approve the proposal under P0-CLEAN. Nothing is deleted, uninstalled or regenerated until you approve. The shared pip cache (18 GB) and the shared Hugging Face cache (9.7 GB) are not project-owned, and they are outside the proposal unless you ask otherwise.
 - **Q8. SPEC wording.** Keep `docs/SPEC.md` verbatim with the repository precedence note (D18), or re-issue the specification with the V1 revision? Recommendation: keep it verbatim.
+- **Q9. Synonym rules and acceptance.** The default stays conservative. An expansion can widen the candidate set, but it cannot satisfy the entity, value, negation or condition checks, which run on raw text (`docs/ARCHITECTURE.md` §4 and §5). Should reviewed rules ever count toward acceptance? A yes needs a per-rule flag such as `verification_eligible` (default off), a regression set that shows no false acceptances, and a decision recorded here. Recommendation: keep the default off. Answer this before P4 is built.
 
 ## Decisions log
 
@@ -179,11 +180,11 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
 | 2b. Optional, TF-IDF only: scikit-learn, scipy, threadpoolctl, narwhals | 4 | 182.7 MB | Optional. Benchmark-only experimental baseline (P9a). |
 | 2c. Optional, NLP only: spaCy, NLTK, and 36 dependencies (among them Jinja2, MarkupSafe, setuptools, requests) | 38 | 171.7 MB | Optional, pending Q6. Recommended for removal. |
 | 3. rapidfuzz 3.14.6 | 1 | 6.8 MB | Owner decision (Q6). Recommended for removal. |
-| 4. Removed by directive: torch 2.14.1+cu130 (its CUDA libraries are inside the package), sentence-transformers, transformers, tokenizers, safetensors, huggingface-hub, hf-xet, httpx2, httpcore2, truststore, PyYAML, and the torch-only sympy, networkx, mpmath, filelock, fsspec | 16 | 3,311.4 MB | Unnecessary under V1. Removed in P0-CLEAN. |
+| 4. Removed by directive: torch 2.14.1+cu130 (its CUDA libraries are inside the package), sentence-transformers, transformers, tokenizers, safetensors, huggingface-hub, hf-xet, httpx2, httpcore2, truststore, PyYAML, sympy, networkx, mpmath, filelock and fsspec (needed only by the removed layers) | 16 | 3,311.4 MB | Unnecessary under V1. Removed in P0-CLEAN. |
 | 5. Tooling: pip 26.3 | 1 | 11.9 MB | Keep. Installer tooling, not a project dependency. |
 | Total | 83 | 3,911.4 MB | |
 
-No `nvidia-*` package is installed; the CUDA runtime ships inside `torch`. The buckets follow from the pins as they are today. If Q6 keeps spaCy and NLTK, the 38 NLP distributions stay in the venv. If it keeps TF-IDF, the seven TF-IDF distributions stay.
+No `nvidia-*` package is installed. The CUDA runtime files (cudart, cublas, cudnn, cufft, curand and nvrtc DLLs) are inside `torch/lib`. The buckets follow from the pins as they are today. Removing spaCy and NLTK alone frees 171.7 MB. Removing TF-IDF alone frees 182.7 MB, because numpy, joblib and cloudpickle stay for spaCy. Removing both frees 410.6 MB.
 
 **Downloads and caches (measured 2026-11-04, read-only).**
 
@@ -236,6 +237,7 @@ No `nvidia-*` package is installed; the CUDA runtime ships inside `torch`. The b
   - [ ] Q6 decided by the owner (spaCy, NLTK, `punkt_tab`, rapidfuzz, TF-IDF).
   - [ ] Q7 decided by the owner (cleanup approval).
   - [ ] Q8 decided by the owner (SPEC wording).
+  - [ ] Q9 decided by the owner (synonym rules and acceptance; must precede P4).
   - [ ] P0-CLEAN executed after approval.
   - [ ] P1 not started; it is held until Q6 and Q7 are decided.
 - **Limitations:**
@@ -316,7 +318,7 @@ No `nvidia-*` package is installed; the CUDA runtime ships inside `torch`. The b
   - `app/retrieval/terms.py`: extract numeric, date and identifier terms (for example `3.5`, `10%`, `2024-01-01`, `ABC-123`) so verification can check them later.
   - Duplicate removal by hash of normalized text. Expansion adds neighbours and section siblings as context only and never replaces evidence.
   - RRF is not implemented. It is added only if a benchmark shows a gain (P9).
-  - **Controlled synonym and stemming rules (D17).** Recall only. A versioned data file (planned `config/retrieval_rules.toml`) lists each rule with an ID, a version, positive examples, counter-examples and a reviewer note. Expansion is query-time and one-way; the index is not rewritten. Each expansion is recorded in the retrieval trace with its rule ID. Expanded matches only add candidates. The entity, value, negation and condition checks (P6) run on raw text and cannot be satisfied by an expansion alone.
+  - **Controlled synonym and stemming rules (D17).** Recall only. A versioned data file (planned `config/retrieval_rules.toml`) lists each rule with an ID, a version, positive examples, counter-examples and a reviewer note. Expansion is query-time and one-way; the index is not rewritten. Each expansion is recorded in the retrieval trace with its rule ID. Expanded matches only add candidates. The entity, value, negation and condition checks (P6) run on raw text and cannot be satisfied by an expansion alone. This is the default. Whether reviewed rules may count toward acceptance is owner decision Q9.
   - **No index stemming in V1.** The FTS5 `porter` tokenizer exists in this SQLite build (3.49.1), and with it `run` matches `running`. The tokenizer is fixed per FTS table, so it needs a second table and cannot be switched per query. It is not used unless the P4 regression set shows a need.
   - **Tests.** Each rule has positive and negative cases, and a false-match regression set covers each rule (`tests/regression/`). Tests assert that each expansion is logged with its rule ID, and that an expansion-only match does not pass a P6 entity, value, negation or condition check.
 - **Interfaces to expose:** `app.retrieval.bm25.search(store, document_id, query, k, weights) -> list[RetrievalCandidate]`.
