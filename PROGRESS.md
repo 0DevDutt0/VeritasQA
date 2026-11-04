@@ -133,16 +133,17 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
   - Installed the experimental group under `-c requirements.txt -c constraints-gpu.txt`: numpy 2.5.4, scikit-learn 1.9.1, spacy 3.8.18, nltk 3.10.4, rapidfuzz 3.14.6, sentence-transformers 6.2.0, huggingface-hub 2.4.0 (plus their dependencies). A freeze diff from before to after the installs shows only additions and no version changes.
   - Downloaded the two models pinned to Hub commits. Every file was checked against the Hub's own digest, and manifests were written to `models/manifests/`. Fetched only the NLTK `punkt_tab` resource.
   - Code: `app/common/device.py` (the `VERITASQA_DEVICE` resolver, the GPU report and a CUDA matmul smoke test), `app/common/models.py` (manifest checks, the non-generative check and the embedder and reranker smoke tests), and `scripts/download_models.py`, `validate_environment.py`, `validate_gpu.py`, `validate_models.py`. No module under the pipeline imports any of them.
-  - Tests: `tests/unit/test_p0env_device.py` (20), `tests/unit/test_p0env_manifests.py` (5), `tests/integration/test_p0env_gpu.py` (3), `tests/integration/test_p0env_models.py` (4), `tests/integration/test_p0env_nlp.py` (2). `tests/conftest.py` skips `requires_cuda` and `requires_models` tests with a stated reason. Both markers are registered in `pyproject.toml`.
+  - Tests: `tests/unit/test_p0env_device.py` (20), `tests/unit/test_p0env_manifests.py` (5), `tests/integration/test_p0env_gpu.py` (3), `tests/integration/test_p0env_models.py` (4), `tests/integration/test_p0env_nlp.py` (2), `tests/integration/test_p0env_device_negative.py` (3, added in commit `c5d3f61`: the no-usable-CUDA branch with a real torch install). `tests/conftest.py` skips `requires_cuda` and `requires_models` tests with a stated reason. Both markers are registered in `pyproject.toml`.
   - Files: `requirements-gpu.txt`, `constraints-gpu.txt`, `requirements-experimental.txt`, `requirements-validated.txt` (full lock, 82 packages), `.env.example`, `models/README.md`, `models/manifests/*.json`, `docs/SETUP.md`. Updated: the header of `requirements.txt` (the stale "not included on purpose" text is removed), `docs/ARCHITECTURE.md` §7 and §9, and `README.md`.
 - **Interfaces exposed:** `app.common.device.{ENV_VAR, DeviceConfigError, DeviceUnavailableError, CudaProbe, probe_cuda, resolve_device, gpu_report, cuda_matmul_smoke_test}`; `app.common.models.{sha256_file, git_blob_sha1, load_manifest, non_generative_problems, verify_manifest, smoke_test_embedder, smoke_test_reranker}`.
 - **Exit criteria:** `pytest -q` (full suite, including `tests/unit/test_p0env_*.py` and `tests/integration/test_p0env_*.py`), and `scripts/validate_environment.py`, `scripts/validate_gpu.py` and `scripts/validate_models.py` each exit 0.
 - **Result (recorded from runs):**
-  - Project venv, full suite: `41 passed in 7.08s`, 0 skipped.
-  - Clean baseline venv (`requirements.txt` only, no torch): `34 passed, 7 skipped in 0.31s`. The skips are the 3 GPU tests, 2 CUDA model tests (no PyTorch) and 2 NLP tests (no spaCy or NLTK).
-  - Fresh venv rebuilt from `requirements-validated.txt`: `41 passed in 13.89s`. Its freeze matches the lock exactly (82 packages), and the three validators each exit 0.
+  - Project venv, full suite: `44 passed in 9.42s`, 0 skipped.
+  - Clean baseline venv (`requirements.txt` only, no torch): `34 passed, 10 skipped in 0.38s`. The skips are the 3 GPU tests, the 3 negative-path tests and 2 CUDA model tests (no PyTorch), and 2 NLP tests (no spaCy or NLTK).
+  - Fresh venv rebuilt from `requirements-validated.txt` (commit `f901558`, before the negative-path tests were added): `41 passed in 13.89s`. Its freeze matches the lock exactly (82 packages), and the three validators each exit 0.
   - `validate_environment.py`: `RESULT: baseline valid`. `validate_gpu.py`: `RESULT: GPU validated`. `validate_models.py`: `RESULT: all model checks passed`.
-  - Fresh-clone simulation (tracked files only, no weights, not a git repo, baseline venv): `32 passed, 9 skipped`, with no failures.
+  - Fresh clone of `origin/main` at `c5d3f61`, `docs/SETUP.md` §3 run as written: the baseline step gives `33 passed, 11 skipped`, and the git-ignore test runs and passes in the clone. After all steps, `pytest -q` gives `44 passed in 11.10s`, and each validator exits 0.
+  - No-usable-CUDA branch with real torch (`CUDA_VISIBLE_DEVICES=-1`): `VERITASQA_DEVICE=cuda` raises `DeviceUnavailableError`, naming the torch version and CUDA build, `requirements-gpu.txt`, and the `auto` or `cpu` fallback. `auto` and `cpu` resolve to `cpu`, and `bogus` raises `DeviceConfigError`.
 - **Installed / Downloaded / Loaded / Validated:**
 
 | Item | Installed | Downloaded | Loaded | Validated |
@@ -164,7 +165,7 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
   - The NLTK resource is not checked against digests by this project.
   - No Tesseract and no GPU OCR library were installed. B2 is unchanged.
   - The optional groups are not used by any pipeline module, so their behaviour in the pipeline is unvalidated.
-- **Reproducibility:** `docs/SETUP.md` §3 and §6. The baseline was rebuilt from scratch in a clean venv. The whole validated environment, including the GPU and experimental groups, was rebuilt from scratch from `requirements-validated.txt`.
+- **Reproducibility:** `docs/SETUP.md` §3 and §6. The baseline was rebuilt from scratch in a clean venv. The whole validated environment, including the GPU and experimental groups, was rebuilt from scratch from `requirements-validated.txt`. `docs/SETUP.md` §3 was also run as written in a fresh clone of `origin/main`.
 
 ### P1 — PDF ingestion, extraction and page-level quality validation
 
