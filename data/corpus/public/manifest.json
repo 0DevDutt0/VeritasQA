@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "purpose": "Public documents for QA and regression checks. They are not the owner's document (blocker B1), so no result from them is a claim about the owner's PDF. The PDF files are git-ignored (*.pdf); this manifest is tracked.",
+  "retrieved": "2026-11-04",
+  "documents": [
+    {
+      "file": "nist-sp800-30r1.pdf",
+      "title": "NIST Special Publication 800-30 Revision 1, Guide for Conducting Risk Assessments",
+      "source_url": "https://nvlpubs.nist.gov/nistpubs/legacy/sp/nistspecialpublication800-30r1.pdf",
+      "sha256": "f214087f0bdb35932a28c16eb93932a33c67a6edfb5e6f1638866bd201c98e04",
+      "bytes": 826897,
+      "pages": 95,
+      "license_note": "US federal government publication (NIST). Reuse terms were not re-checked on the page.",
+      "checks": {"encrypted": false, "active_content": "none", "text_pages": 95, "image_only_pages": 0}
+    },
+    {
+      "file": "nist-sp800-37r1.pdf",
+      "title": "NIST Special Publication 800-37 Revision 1, Guide for Applying the Risk Management Framework to Federal Information Systems",
+      "source_url": "https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-37r1.pdf",
+      "sha256": "d19a9f3447b0b769db361aaa14b3272d5f1d0816985e903140fe2531e0a7a647",
+      "bytes": 947930,
+      "pages": 102,
+      "license_note": "US federal government publication (NIST). Reuse terms were not re-checked on the page.",
+      "checks": {"encrypted": false, "active_content": "none", "text_pages": 102, "image_only_pages": 0}
+    },
+    {
+      "file": "arxiv-2506-12594.pdf",
+      "title": "A Comprehensive Survey of Deep Research: Systems, Methodologies, and Applications",
+      "source_url": "https://arxiv.org/pdf/2506.12594.pdf",
+      "abstract_url": "https://arxiv.org/abs/2506.12594",
+      "sha256": "5267fd4072a07595f45586c6ffbe0bd8613bd256b65489c51e8b6531c325fa3f",
+      "bytes": 1821865,
+      "pages": 95,
+      "license_note": "arXiv preprint. Its licence was not checked. Kept locally for QA only and never committed.",
+      "checks": {"encrypted": false, "active_content": "none", "text_pages": 95, "image_only_pages": 0}
+    }
+  ],
+  "rejected": [
+    {"source_url": "https://www.irs.gov/pub/irs-pdf/p970.pdf", "reason": "81 pages; contains an EmbeddedFile object, so it was not accepted as safe"},
+    {"source_url": "https://openknowledge.worldbank.org/server/api/core/bitstreams/95fe55e9-f110-4ba8-933f-e65572e05395/content", "reason": "downloaded, valid, no active content; not added, to keep the corpus to three documents"},
+    {"source_url": "https://openknowledge.worldbank.org/server/api/core/bitstreams/f2509a0f-7153-4f32-b180-bc11e90c4940/content", "reason": "downloaded, valid, no active content; not added, to keep the corpus to three documents"},
+    {"source_url": "https://openknowledge.worldbank.org/server/api/core/bitstreams/77ab6e06-9934-435c-a84e-03a4c99bbe48/content", "reason": "downloaded, valid, no active content; not added, to keep the corpus to three documents"},
+    {"source_url": "https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-115.pdf", "reason": "downloaded, valid, no active content; not added, to keep the corpus to three documents"}
+  ]
+}
