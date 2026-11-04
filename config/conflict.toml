@@ -1,0 +1,35 @@
+# VeritasQA conflict configuration (read by app/conflict/config.py; unknown keys are rejected).
+#
+# Every entry below is an uncalibrated, reviewed-by-reading default (ARCHITECTURE §16.2, §16.3, D71). None is an
+# acceptance threshold: these lists only decide which abstention label a conflict receives, and which quantities are
+# compared with each other.
+
+[measures]
+# Units that measure the same thing. Two quantities are compared only when their units share a family, so 30 days
+# and 5 USD are not compared. A unit that is not listed here is compared with every quantity, which is the safe side.
+# Entries are the singular form. A plural is reduced to its singular before lookup (days -> day).
+time = ["second", "minute", "hour", "day", "week", "fortnight", "month", "quarter", "year"]
+money = ["usd", "eur", "gbp", "inr", "jpy", "cad", "aud", "chf", "cny", "$", "€", "£", "¥", "dollar", "euro", "pound", "rupee", "cent"]
+percent = ["%", "percent"]
+length = ["km", "kilometre", "kilometer", "m", "metre", "meter", "cm", "centimetre", "centimeter", "mm", "millimetre", "millimeter", "mile", "ft", "foot", "feet"]
+mass = ["kg", "gram", "g", "mg", "milligram", "tonne", "ton", "lb"]
+volume = ["l", "litre", "liter", "ml", "millilitre", "milliliter"]
+data = ["byte", "kb", "mb", "gb", "tb", "kilobyte", "megabyte", "gigabyte", "terabyte"]
+
+[supersession]
+# Stated precedence. A piece of text that contains one of these phrases (whole words, any letter case, any spacing) is
+# a supersession. Such a conflict is shown and the answer abstains. Precedence is never applied in V1 (ARCHITECTURE §16.3).
+phrases = [
+    "supersedes",
+    "supersede",
+    "superseded by",
+    "replaces",
+    "replaced by",
+    "in place of",
+    "amends",
+    "amended by",
+    "no longer applies",
+    "no longer in effect",
+    "rescinded by",
+    "revoked by",
+]

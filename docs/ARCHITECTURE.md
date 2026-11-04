@@ -635,3 +635,65 @@ Implemented in `app/verification` (`errors.py`, `vocabulary.py`, `report.py`, `t
 - The negation check reads the sentence only. The context check reads the two neighbours for strong qualifiers only, not for negation words.
 - The neighbours are `prev_id` and `next_id`, not the retrieval window, so the result does not depend on `context_window`.
 - The vocabulary is reviewed by reading. It is not calibrated on any gold answer.
+
+## 16. Conflict screening and decision contracts (P7)
+
+Implemented in `app/conflict` (`config.py`, `claims.py`, `detector.py`) and `app/decision` (`errors.py`, `policy.py`, `response.py`, `engine.py`). Configuration: `config/conflict.toml` (measure families and supersession phrases) and `config/acceptance_policy.toml` (gates). The store gains one read, `Store.page_extraction_method`, which reads `pages.extraction_method`. No schema change. No model, no network call, no random choice, no timestamp in the response.
+
+**Entry point (D68).** `answer(store, document_id, question, policy=None, *, retrieval_config=None, rules=None, conflict_config=None) -> QAResponse`. It raises `QuestionError` for an empty question, `StorageError` for an unknown document, `PolicyError` and `ConflictConfigError` for a bad configuration file. "No answer" is never an exception: it is a status.
+
+**Pipeline per call.** `analyze` (P5) → for each searchable component: `search` (P4), `load_unit`, `select_candidates` (P5) → `verify` each candidate (P6) → screen the component (§16.2) → decide the component (§16.4) → aggregate (§16.5) → build and validate the response (§16.7).
+
+**16.1 Acceptance (D69).** `accepts(report, policy)` is the only place where a candidate is accepted. A candidate is accepted when every required check is PASS, or NOT_APPLICABLE on `attribute` or `value`, or UNRESOLVED on a relaxable check whose gate is off. Relaxable checks: `attribute`, `value`, `entity`, `context`, `negation` and `condition`. Never relaxable, and not in the policy file at all: `quotation`, `location`, `answer_span`, `source_quality`, `candidate_flags`. FAIL is never accepted. The default policy has every gate on, so `accepts` equals the verdict PASS (a test pins this, and each gate has one synthetic case that it changes).
+
+**16.2 Screen (D70; document-wide, independent of retrieval depth).** For a component of an answer type (when, how_many, whether) the screen takes every unit that contains each target term. It uses P3's exact check `find_phrase` once per target term and intersects the results by evidence ID, in `(pdf_page, ordinal)` order. Inside each unit, a piece is a sentence (a table cell or a conditions passage is one piece, as in P5) that contains every target term under `span_matches`. A derived table row is screened on its raw text. It cannot be CONFIRMED (§16.3). A component with no target term is not screened, so its candidates cannot pass the entity check (P6).
+
+Claims of a piece, by question type:
+- `when`: its DATE and PERIOD values. Family `date` or `period`. Key: the normalized text (case folded, whitespace collapsed).
+- `how_many`: quantities (percent, currency, or a number with a unit) and bare numbers (no unit, not a range). A quantity's family comes from `config/conflict.toml`; a unit that is not listed forms its own family. Key: number and unit label, both normalized. A bare number has family `bare` and key: its number.
+- `whether`: the polarity of each permission marker. Family `polarity`.
+- Other types: no claims, and no screen.
+
+For `how_many` and `whether`, the DATE and PERIOD values of a piece are its effective dates, not claims.
+
+Comparing two claims: a bare number is compared with any quantity by its number. Two claims with units are comparable only in the same family (no unit conversion; `30 days` and `1 month` differ). A date is comparable with a date only. Polarity is comparable with polarity. Two claims that are not comparable give no relation.
+
+**16.3 Relations (D71).** For each pair of pieces, and each pair of comparable claims that differ, the first rule that holds gives the relation:
+1. `EXPLICIT_SUPERSESSION`: a configured phrase (whole words, case-insensitive; `config/conflict.toml`) is in either piece.
+2. `DATED_CHANGE`: both pieces have effective dates and the sets differ.
+3. `DIFFERENT_SCOPE`: the scope words of the two pieces differ. Scope words are the words of the piece that are not target words, value words, function, question, attribute, negation or pronoun words, marker words, or tokens with a digit.
+4. `CONFIRMED_INCOMPATIBLE`: the scope words are equal, the effective dates are equal (both empty, or the same set), and neither piece is a derived row.
+5. `POTENTIAL_DISCREPANCY`: any other case (one piece is dated and the other is not, or a derived row is involved).
+
+Equal claims give no relation and are counted as agreeing pairs. A piece is never compared with itself. Its claims are compared with the claims of every other piece, including another piece of the same unit. So a sentence that states 30 days and 45 days blocks an answer whenever another passage gives a differing value. Such a sentence cannot be the answer itself: P5 flags it (several values), and P6 does not accept a flagged candidate.
+
+**Impact (D71).** `CONFIRMED_INCOMPATIBLE` and `EXPLICIT_SUPERSESSION` give the impact CONFLICT when both pieces are clean (verified source and not a derived row). Otherwise they give SOURCE. `DATED_CHANGE`, `DIFFERENT_SCOPE` and `POTENTIAL_DISCREPANCY` give AMBIGUOUS. Scope words choose only which label is shown. They never permit an answer, because ANSWERED needs the absence of every non-equal relation in the component. Supersession never grants an answer in V1: naming the superseding value needs a direction parser, which V1 does not have. The statement is shown and the answer abstains (SPEC §8, "only apply precedence when the document establishes it").
+
+**16.4 Component status (D72).** The first rule that holds gives the status:
+1. Not searchable: AMBIGUOUS_QUERY (`unsupported_question` or `ambiguous_question`).
+2. Any CONFLICT impact: CONFLICT (`conflict_confirmed` or `conflict_supersession`).
+3. Any SOURCE impact: SOURCE_UNVERIFIED (`source_quality`, with the discrepancy in the reasons).
+4. An accepted candidate exists: AMBIGUOUS_QUERY if any AMBIGUOUS impact (`scope_differs`, `date_differs` or `potential_discrepancy`); otherwise ANSWERED (`answer_verified`, and `relaxed_gate_used` when an accepted candidate has an open check that a relaxed gate let through).
+5. No accepted candidate: SOURCE_UNVERIFIED if some candidate's non-PASS checks are only `source_quality` and `context` (both come from the page's quality, D62). Otherwise AMBIGUOUS_QUERY if any AMBIGUOUS impact. Otherwise INSUFFICIENT_EVIDENCE with `no_candidates`, `expansion_only`, `no_verified_answer` (passage-only types, §16.6) or `verification_failed` / `verification_unresolved`.
+
+Rule 5's source test uses the verifier's check statuses, not the text of the reasons.
+
+**16.5 Overall status (D72).** ANSWERED when every component is ANSWERED. PARTIAL when at least one component is ANSWERED and at least one is not (the response still lists each component's own status). Otherwise the first of CONFLICT, SOURCE_UNVERIFIED, AMBIGUOUS_QUERY and INSUFFICIENT_EVIDENCE that any component has. A single-component question is never PARTIAL.
+
+**16.6 Passage-only types (D73).** `what`, `who`, `where`, `which`, `conditions` and `comparison` are never ANSWERED (D65). Their candidates are returned as evidence for inspection, with `no_verified_answer`, and the status is INSUFFICIENT_EVIDENCE. The six SPEC §9 statuses are the only ones, so no seventh status is added. This choice is recorded for the owner to confirm.
+
+**16.7 Response model (D74).** `QAResponse` is a frozen Pydantic model that forbids extra fields. Its sections are kept apart (SPEC §10): `status`, `question`, `answer_spans`, `evidence`, `warnings`, `reason_codes`, then `components`, `retrieval`, `verification`, `conflicts`, `screening`, `policy` and `engine_version`. Validated invariants (tests pin each one):
+- answer spans appear only when the status is ANSWERED or PARTIAL;
+- ANSWERED means every component is ANSWERED; PARTIAL means a mix of answered and not answered components;
+- every answer span names an evidence item of the response, and its text equals the item's quote at the span's page offsets;
+- every quoted evidence item has `source_end - source_start == len(quote)`;
+- BM25 appears only as a raw rank with its score labelled raw and uncalibrated, never as a probability (SPEC §9).
+
+**16.8 Determinism (D74).** The same PDF bytes, question, retrieval configuration, conflict configuration and policy give equal responses. Order: components in question order; evidence by `(pdf_page, ordinal)`; relations in piece order, then claim order. The test compares two independent runs.
+
+**16.9 Limits (P7).**
+- The screen covers passages that contain every target word exactly (D58). A passage that states the same fact with other words is not screened. A passage with the subject words and no value is not a claim.
+- A bare number is compared with the answer by its number. A sentence with an unrelated bare number (for example `after 2 approvals`) can therefore block an answer. This is the safe direction, and it costs recall.
+- Supersession never grants an answer (above). Passage-only types never pass (D65).
+- The scope and date tests are heuristics, reviewed by reading. They choose labels, and every case without an answer is an abstention. None is calibrated on gold data (B1, B3).
+- A PASS is still candidate-level evidence. The answer is the decision's output, and it has been checked only on synthetic documents, because the public corpus has no PASS on a verified page (P6, D62).

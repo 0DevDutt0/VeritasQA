@@ -1,0 +1,19 @@
+# VeritasQA acceptance policy (read by app/decision/policy.py; unknown keys are rejected; ARCHITECTURE §16.1, D69).
+#
+# Each gate below is a switch for one verifier check that can be left UNRESOLVED. Setting a gate to false lets that
+# UNRESOLVED outcome through. It never lets a FAIL through. The checks that are not listed (quotation, location,
+# answer span, source quality and candidate flags) always block, so a flagged page is never accepted by policy.
+#
+# The defaults (all true) are conservative. Nothing here is calibrated: calibrated must stay false until a measured
+# development split exists (B1, B3, P9b). A policy that is changed must be recorded in PROGRESS.md.
+
+version = "policy.v1"
+calibrated = false
+
+[gates]
+require_attribute_validation = true
+require_value_validation = true
+require_entity_validation = true
+require_context_validation = true
+require_negation_validation = true
+require_condition_validation = true

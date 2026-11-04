@@ -131,6 +131,12 @@ def _page_offsets(unit: EvidenceUnit, start: int, end: int) -> tuple[int, int] |
     return None
 
 
+def unit_page_offsets(unit: EvidenceUnit, start: int, end: int) -> tuple[int, int] | None:
+    """Public form of :func:`_page_offsets` for the P7 conflict screen (ARCHITECTURE §16.2). None when the range
+    crosses a join, so the text cannot be quoted."""
+    return _page_offsets(unit, start, end)
+
+
 def _values_of(text: str, count_nouns: tuple[str, ...]) -> tuple[Value, ...]:
     return find_values(text, count_nouns=count_nouns)
 

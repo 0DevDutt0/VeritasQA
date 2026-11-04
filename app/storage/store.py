@@ -179,6 +179,10 @@ class Store:
         """The issue codes stored for one page, read from ``pages.warnings_json`` (P6, D62). Read only."""
         return repository.read_page_warning_codes(self._conn, document_id, pdf_page)
 
+    def page_extraction_method(self, document_id: str, pdf_page: int) -> str:
+        """The extraction method stored for one page (``native_text``, ``ocr_tesseract`` or ``none``). Read only (P7)."""
+        return repository.read_page_extraction_method(self._conn, document_id, pdf_page)
+
     def match_units(self, document_id: str, fts_match: str) -> list[EvidenceUnit]:
         """Body-retrieval units of one document whose FTS row matches ``fts_match``, in page order.
 
