@@ -579,3 +579,59 @@ Implemented in `app/question_processing` (`analysis.py`, `vocabulary.py`, `error
 - Only the candidates that retrieval returned are examined, so the retrieval depth `k` limits recall.
 - A target term must appear in the same sentence as the value or marker. An answer split across two sentences is not found.
 - The abbreviation list and the marker lists are uncalibrated heuristics. They are reviewed on the public corpus, and the counts of how often each rule fires are recorded in `PROGRESS.md` (P5). Nothing is tuned to a gold answer.
+
+## 15. Evidence verification contracts (P6)
+
+Implemented in `app/verification` (`errors.py`, `vocabulary.py`, `report.py`, `terms.py`, `checks.py`, `verifier.py`). Standard library only. The store reads are `Store.load_unit`, `Store.page_texts` and `Store.page_warning_codes`. The last one is added in P6: it reads the `pages.warnings_json` column that P1 and P3 already write, and the schema does not change. No model call, no network call and no random choice.
+
+**Entry point (D61).** `verify(candidate, analysis, store, document_id) -> VerificationReport`. `candidate` is a P5 `AnswerCandidate`, and `analysis` is the `QuestionAnalysis` it was selected for. `VerificationError` is raised only when the inputs do not line up: the component is missing, its question type differs from the candidate's, or the component is not searchable.
+
+**The candidate is a claim (D61).** Each check re-reads the stored page text and the stored unit, and recomputes what it needs: values with P5's parser `find_values`, the permission marker and its polarity with `find_markers`, the target and property words with P3's exact check `span_matches`, and the neighbours through `prev_id` and `next_id`. The candidate's `values`, `attribute_hits` and `negated` are never copied. A mismatch is FAIL, not a silent correction.
+
+**Checks.** Every check returns a status (`PASS`, `FAIL`, `UNRESOLVED` or `NOT_APPLICABLE`) with a reason, and a rule ID `verify.<name>.v1`.
+
+| Check (SPEC §7) | Name | PASS when | FAIL when | UNRESOLVED when | NOT_APPLICABLE when |
+| --- | --- | --- | --- | --- | --- |
+| 1 Quotation integrity | `quotation` | the quote equals the stored page text at `page_start:page_end` | the quote is empty, the page has no stored text, the offsets are out of range, or the text differs | never | never |
+| 2 Location integrity | `location` | the unit exists and lies on the candidate's page and section; it is body text and not derived; its quality and rule agree with the candidate; the quote lies inside one source span | any of these fails | never | never |
+| 3 Answer-span integrity | `answer_span` | (answer types) the span lies inside the quote and equals the stored text at its offsets; the value read from the quote is the only one of the required kind and matches the claimed span and kind (polarity is checked by the negation check) | (answer types) any of these fails; (passage types) any span is present | (answer types) no span, with the P5 flag as the reason; (passage types) always, because no rule gives a span (SPEC §6) | never |
+| 4 Entity consistency | `entity` | every target word of the question occurs in the quote (`span_matches`) | a target word is absent, or the candidate is expansion-only (D38) | the question has no target word | never |
+| 5 Attribute consistency | `attribute` | at least one property word of the question occurs in the quote | never | no property word occurs (synonyms are not used) | the question has no property word |
+| 6 Value integrity | `value` | every number, date or identifier of the question occurs in the quote (D63), and not only with a minus sign | a question value occurs only with a minus sign, or the candidate is expansion-only (D38) | a question value does not occur | the question has no number, date or identifier |
+| 7 Context validation | `context` | the page is `verified`, and neither immediate neighbour (`prev_id`, `next_id`) holds a strong qualifier (D62) | never | the page is not `verified` (D62), a neighbour holds a strong qualifier, or a neighbour cannot be loaded | never |
+| 8 Negation validation | `negation` | (whether) exactly one permission marker, its polarity equal to the candidate's `negated`, the question not negated, and no negation or hedge word outside the marker; (other types) no negation or hedge word in the quote | the stored polarity differs from the passage's, or the candidate is expansion-only (D38) | the question is negated, the passage does not have exactly one marker, or a negation or hedge word is present | never |
+| 9 Condition validation | `condition` | no condition marker and no strong qualifier in the quote | the candidate is expansion-only (D38) | a condition marker or a strong qualifier is in the quote | never |
+| 10 Conflict screening | `conflict` | not evaluated here | not evaluated here | not evaluated here | always: pending in the decision step (D66). It is listed in `pending` and is not part of the verdict |
+| 11 Source quality | `source_quality` | the stored page status is `verified` | never | `warning` or `unverified`, with the page's issue codes as the reason (D62) | never |
+| P5 flags (D64) | `candidate_flags` | the candidate has no P5 flag | never | at least one P5 flag, or an unknown one | never |
+
+**Required checks per type (D65).** Every type requires the same ordered list: `quotation`, `location`, `answer_span`, `entity`, `attribute`, `value`, `context`, `negation`, `condition`, `source_quality`, `candidate_flags`. Conflict screening is pending (D66). The types differ only in the answer-span rule.
+
+| Type | Answer span from P5 | Can PASS |
+| --- | --- | --- |
+| `when`, `how_many`, `whether` | one value or marker, when a rule gives exactly one | yes, when every required check passes |
+| `what`, `who`, `where`, `which`, `conditions`, `comparison` | none (passage only) | never: `answer_span` is UNRESOLVED, so the verdict cannot be PASS |
+
+**Verdict (D61).** FAIL when any required check is FAIL. PASS when every required check is PASS, where NOT_APPLICABLE is allowed only for `attribute` and `value`. UNRESOLVED otherwise. A PASS is a candidate-level verdict. It is not a final answer, because the decision step (P7) still runs conflict screening and the acceptance policy.
+
+**Pages that are not verified (D62).** `source_quality` passes only on a `verified` page. A `warning` or `unverified` page gives UNRESOLVED, and the reason lists the page's stored issue codes. The stored record does not say which warning applies to a page, so every page that is not verified counts as order-uncertain for `context` (Q11, option b, applied conservatively). If reading order is repaired first (Q11, option a), more pages become `verified` and can pass. The answer to Q11 changes how many pages count as clean. The code is the same either way.
+
+**Vocabulary v1 (D62).** Matching is case-insensitive and uses word boundaries.
+- Strong qualifiers: `except`, `unless`, `only if`, `provided that`, `does not apply`, `do not apply`, `however`, `subject to`.
+- Condition markers: the P5 list (`find_markers(text, "condition")`).
+- Negation words: `not`, `no`, `never`, `none`, `nor`, `neither`, `cannot`, `without`, `nothing`, and the contraction `n't`.
+- Hedges: `might`, `could`, `possibly`, `probably`, `perhaps`, `unclear`, `uncertain`, `appears to`, `seems to`, `is likely`, `are likely`.
+
+**Value occurrence (D63).** A question value (P4's `extract_terms`: numbers, percentages, dates and identifiers) occurs in a passage when the passage, normalized with the index rules, has it with these boundaries. The character before is not a letter, digit, underscore, `.`, `,` or `/`. The character after is not a letter, digit or underscore, and not a `.`, `,` or `/` followed by a letter or digit. A space in the term matches any whitespace. An occurrence is negative when a minus sign (`-`, U+2212 or `–`) comes before it and the character before that sign is not a letter, digit or `)`. So `10-15` is positive, while `-3.5` and `(-3.5)` are negative. These boundaries are stricter than P3's phrase check, which does not read the sign and does not split `3.5` from `3.5.2`. Tests pin `3.5` against `-3.5`, `3.5.2`, `1,2,3`, `5` inside `15`, and `13.5`.
+
+**Blocking P5 flags (D64).** `no_answer_span`, `multiple_values`, `multiple_markers`, `table_cell`, `list_marker`, `comparison_subject` and `replacement_character` each give UNRESOLVED on `candidate_flags`. An unknown flag does too. A derived table row is never quoted (D28), so `location` FAILs on one.
+
+**Expansion-only (D38).** A candidate whose `expansion_only` is true FAILs `entity`, `value`, `negation` and `condition`. Its other checks run as usual.
+
+**Output (auditable).** `VerificationReport` holds `verifier_version` (`verify.v1`), `document_id`, `evidence_id`, `component_id`, `question_type`, `verdict`, `checks` (in the table order, each with `name`, `rule_id`, `status` and `reason`), `pending` (`conflict`), and `reasons` (the reasons of every check that is neither PASS nor NOT_APPLICABLE).
+
+**Limits (P6).**
+- Rules can show that a passage has the question's words, values, markers and polarity. They cannot show that the passage answers the question (SPEC §7).
+- The negation check reads the sentence only. The context check reads the two neighbours for strong qualifiers only, not for negation words.
+- The neighbours are `prev_id` and `next_id`, not the retrieval window, so the result does not depend on `context_window`.
+- The vocabulary is reviewed by reading. It is not calibrated on any gold answer.

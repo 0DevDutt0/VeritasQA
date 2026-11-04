@@ -409,6 +409,17 @@ def read_page_texts(conn: sqlite3.Connection, document_id: str, pdf_pages: Itera
     return found
 
 
+def read_page_warning_codes(conn: sqlite3.Connection, document_id: str, pdf_page: int) -> tuple[str, ...]:
+    """The issue codes stored for one page (``pages.warnings_json``), in the order they were written (P6, D62)."""
+    row = conn.execute(
+        "SELECT warnings_json FROM pages WHERE document_id = ? AND pdf_page = ?",
+        (document_id, pdf_page),
+    ).fetchone()
+    if row is None:
+        raise StorageIntegrityError(f"document {document_id} has no stored page {pdf_page}")
+    return tuple(str(issue["code"]) for issue in json.loads(row["warnings_json"]))
+
+
 def read_structure(conn: sqlite3.Connection, document_id: str, row: sqlite3.Row) -> DocumentStructure:
     """Rebuild a DocumentStructure exactly as it was written."""
     return DocumentStructure(

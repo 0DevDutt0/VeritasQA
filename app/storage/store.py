@@ -175,6 +175,10 @@ class Store:
         """The immutable raw text of each requested page. Quotations are slices of these strings."""
         return repository.read_page_texts(self._conn, document_id, pdf_pages)
 
+    def page_warning_codes(self, document_id: str, pdf_page: int) -> tuple[str, ...]:
+        """The issue codes stored for one page, read from ``pages.warnings_json`` (P6, D62). Read only."""
+        return repository.read_page_warning_codes(self._conn, document_id, pdf_page)
+
     def match_units(self, document_id: str, fts_match: str) -> list[EvidenceUnit]:
         """Body-retrieval units of one document whose FTS row matches ``fts_match``, in page order.
 
