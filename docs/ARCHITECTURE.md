@@ -94,7 +94,7 @@ These contracts are fixed now so that later phases can rely on them.
 ## 4. Retrieval principles (planned P3–P4)
 
 - FTS5 `bm25()` returns smaller, more negative values for better matches. Candidates are sorted by `bm25() ASC`. The raw value is kept for audit and is never exposed as a probability (`SPEC §4`, `§9`). P0 tests pin this direction.
-- Queries are never passed to FTS5 unquoted. Each query token is extracted by a fixed pattern and wrapped as a quoted FTS5 string. All values are bound as SQL parameters.
+- Queries are never passed to FTS5 unquoted. Each query phrase is normalized and passed as one quoted FTS5 string, with its double quotes doubled (§12). All values are bound as SQL parameters.
 - The FTS5 `unicode61` tokenizer splits `3.5` into `3` and `5`. Phrase search therefore uses FTS5 for candidates and then a deterministic substring check on normalized text. Numbers, units and dates are checked again in verification (P6).
 - Heading text sits in a separate FTS5 column so its weight can be tuned (P4).
 - Reciprocal Rank Fusion is not implemented. It is added only if a measured benchmark shows a gain (`SPEC §4`).
@@ -439,9 +439,9 @@ Implemented in `app/storage` (schema, integrity checks, repository, `Store`) and
 **Round trip.** `load_structure(document_id) == structure` for every structure written. The tests check it on synthetic fixtures and on the public corpus.
 
 **Query building (`app/retrieval/query.py`).**
-1. The phrase is normalized with `normalize_text` (§11).
-2. Tokens are the matches of `[^\W_]+` in the normalized phrase. A phrase with no token raises `QueryError`.
-3. The MATCH expression is `index_text : "tok1 tok2 …"`. The column filter keeps heading text out of the candidate step. Only the tokens appear inside the quotes, so user text never reaches MATCH as syntax. `risk AND assessment`, `NEAR(a b)`, `-risk`, `risk*`, `a:b`, `^x` and `'); DROP TABLE …` are literal words, and the tests check it.
+1. The phrase is normalized with `normalize_with_map` (§11). The query keeps the normalized text and the raw range of each of its characters, so a normalized character traces back to the raw phrase (`PhraseQuery.raw_range`).
+2. A phrase that contains a control character other than whitespace raises `QueryError`, and so does a phrase with no letter or digit.
+3. The MATCH expression is `index_text : "<normalized phrase>"`, with every double quote doubled. The whole phrase is one FTS5 string, so FTS5 tokenizes it with the index's tokenizer and the two sides cannot disagree about token boundaries. A per-token query did disagree: a private-use character, or a combining mark that unicode61 folds away, split the phrase where the index did not, and the phrase missed its own unit (`tests/unit/test_p3_tokenizer_agreement.py`). The column filter keeps heading text out of the candidate step. Inside the quotes, `AND`, `NEAR(…)`, `-`, `*`, `:`, `^`, parentheses and quotes are text, so `risk AND assessment`, `NEAR(a b)`, `-risk`, `risk*`, `a:b`, `^x` and `'); DROP TABLE …` are literal words, and the tests check it.
 
 **Candidate step.** FTS5 is a superset filter. It ignores punctuation and spacing, folds case and folds diacritics, so it proposes units that the exact check then rejects. The FTS result is never returned on its own.
 
@@ -450,7 +450,7 @@ Implemented in `app/storage` (schema, integrity checks, repository, `Store`) and
 - The match lies inside one span, so it cannot cross the newline join of non-adjacent lines.
 - Case is folded one character at a time, so the length is kept. A character whose lower case is more than one character is kept as it is (`'İ'.lower()` has two characters).
 - Diacritics are significant: `cafe` does not match `café`.
-- Word boundaries: the character just before and just after the match must not be a letter, digit, underscore or combining mark, whatever the phrase's own edge characters are. So `3.5` does not match `13.5`, `3.55` or `x3.5`; `-5` does not match `3-5`; `U.S.` does not match `U.S.A`.
+- Word boundaries: the character just before and just after the match must not be a letter, digit, underscore, combining mark or private-use character, whatever the phrase's own edge characters are. That set includes every character unicode61 keeps inside a token, so an exact match never ends inside an FTS5 token. So `3.5` does not match `13.5`, `3.55` or `x3.5`; `-5` does not match `3-5`; `U.S.` does not match `U.S.A`.
 - Numbers: where the phrase starts or ends with a digit, a neighbouring `.` or `,` followed by a digit also rejects the match. So `3.5` does not match `3.5.2` or `1,3.5`, and `5` does not match `3.5`.
 - Spacing and punctuation are significant: `3.5` does not match `3 5` or `3 . 5`; `risk assessment` does not match `risk. assessment`; `ABC 123` does not match `ABC-123`.
 
@@ -462,3 +462,6 @@ Implemented in `app/storage` (schema, integrity checks, repository, `Store`) and
 - Case folding means `US` also finds `us`. P5 and P6 decide entity and value matches. P3 only proposes candidates.
 - A phrase copied from a table row's generated `index_text`, with its ` | ` or ` = ` glue, is not found. This is by design.
 - BM25 statistics are index-wide, because all documents share one FTS table. A second document changes the scores of the first. This is a P4 concern (see the P4 handoff).
+- **A private-use character glued to a word hides the word.** `abcd` is one token for unicode61 and one word for the exact check, so `ab` and `cd` do not find it (pinned in `test_p3_phrase_check.py`). A symbol-font glyph with no space beside a word has this effect.
+- **Derived table rows are found only through the text their generated index states.** P2 writes a row's `index_text` from the cells whose column has a header (§11), and it joins adjacent cells that share one raw line into one span (D28). So a value in a headerless column, or a phrase that crosses a cell boundary, does not find its row. The exact check accepts such a phrase where the span is verbatim, so the gap is a missed candidate, never a false acceptance. The cell units still find each value, with their row header, caption and any column header. The recall test excludes exactly these windows: 16 of 465 on the public corpus, all derived rows. This is a P2 table-index limit, open as Q12 in `PROGRESS.md`.
+- **Recall evidence (P3, public corpus).** `tests/integration/test_p3_corpus.py` cuts whitespace windows from the normalized text of 174 sampled units across eight body content types, including every span of table rows and cells. 465 windows were checked, and each found its own unit. That is recall for the windows the index states. It is not measured recall for the owner's document (B1, B3).

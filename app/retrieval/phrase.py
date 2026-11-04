@@ -29,7 +29,11 @@ def fold_case(text: str) -> str:
 
 
 def _is_word(character: str) -> bool:
-    return character.isalnum() or character == "_" or unicodedata.category(character).startswith("M")
+    """A character that may belong to a token. The set includes every character unicode61 keeps inside a
+    token (letters, numbers, private use, and the marks it folds away), so an exact match never ends in
+    the middle of an FTS5 token. Extra characters here only make the check stricter."""
+    category = unicodedata.category(character)
+    return character.isalnum() or character == "_" or category.startswith("M") or category == "Co"
 
 
 def _boundary_before(text: str, start: int, first: str) -> bool:

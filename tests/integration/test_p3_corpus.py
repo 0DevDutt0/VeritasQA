@@ -14,10 +14,12 @@ from pathlib import Path
 
 import pytest
 
+from app.common.text import normalize_text
 from app.document_structure import build_structure
 from app.document_structure.models import ContentType
 from app.ingestion.extract import extract_document
-from app.retrieval import find_phrase
+from app.retrieval import find_phrase, span_matches
+from app.retrieval.query import build_phrase_query
 from app.storage import Store
 from tests.fixtures.store_checks import brute_force_phrase, row_counts
 from tests.fixtures.structure_checks import check_invariants
@@ -93,6 +95,52 @@ def test_the_candidate_step_agrees_with_brute_force_on_sampled_phrases(corpus):
         for phrase in phrases:
             found = sorted(unit.evidence_id for unit in find_phrase(store, extracted.document_id, phrase))
             assert found == brute_force_phrase(store, extracted.document_id, phrase), (name, phrase)
+
+
+def _windows(normalized: str) -> list[str]:
+    """Whitespace-delimited windows of one normalized span: its first two words, its last two, and a middle three."""
+    words = normalized.split(" ")
+    picks = {" ".join(words[:2]), " ".join(words[-2:])}
+    if len(words) >= 5:
+        middle = len(words) // 2
+        picks.add(" ".join(words[middle - 1 : middle + 2]))
+    return sorted(pick for pick in picks if any(character.isalnum() for character in pick))
+
+
+def test_a_window_of_each_sampled_unit_finds_that_unit(corpus):
+    """Recall on real text: a window cut from a unit's own normalized span must find that unit.
+
+    The sample covers every body content type, and every span of table rows and cells, where the index text
+    differs from the verbatim text. Windows are cut from the normalized span, so a line-end hyphen cannot
+    make the test fail by itself. A derived row is checked only for the windows its generated index text
+    states (the exact check on ``index_text``): P2 leaves some values and cell-crossing phrases out of that
+    text, which is a documented limit (ARCHITECTURE §12, open question Q12), and the cell units still find
+    those values.
+    """
+    store, documents = corpus
+    checked: dict[str, int] = {}
+    excluded: dict[str, int] = {}
+    for name, (extracted, structure) in documents.items():
+        texts = store.page_texts(extracted.document_id, {unit.pdf_page for unit in structure.units})
+        by_type: dict[ContentType, list] = {}
+        for unit in structure.units:
+            if unit.body_retrieval:
+                by_type.setdefault(unit.content_type, []).append(unit)
+        for content_type, units in by_type.items():
+            for unit in units[:: max(1, len(units) // 8)][:8]:
+                page_text = texts[unit.pdf_page]
+                for start, end in unit.source_spans:
+                    for window in _windows(normalize_text(page_text[start:end])):
+                        if unit.derived and not span_matches(unit.index_text, build_phrase_query(window)):
+                            # A derived row is found only through the text its generated index states (ARCHITECTURE §12).
+                            excluded[content_type.value] = excluded.get(content_type.value, 0) + 1
+                            continue
+                        hits = [hit.evidence_id for hit in find_phrase(store, extracted.document_id, window)]
+                        assert unit.evidence_id in hits, (name, content_type.value, unit.evidence_id, window)
+                        checked[content_type.value] = checked.get(content_type.value, 0) + 1
+    for required in ("heading", "paragraph", "table_cell", "table_row"):
+        assert checked.get(required, 0) > 0, f"the sample must include {required} units"
+    assert set(excluded) <= {"table_row"}, "only derived rows may be excluded, and only for the documented P2 limit"
 
 
 def test_results_never_cross_documents(corpus):

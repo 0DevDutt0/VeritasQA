@@ -49,6 +49,13 @@ CASES = [
     ("ABC 123", "ABC-123", False),
     ("ABC-123", "ABC-123", True),
     ("ABC", "ABC_123", False),
+    # --- characters that unicode61 keeps inside a token: a private-use glyph or a folded mark glued to a word
+    ("abcd", "abcd", True),
+    ("ab", "abcd", False),  # pinned limit: a private-use glyph glued to a word hides that word
+    ("cd", "abcd", False),
+    ("ab́cd", "ab́cd", True),
+    ("ab", "ab́cd", False),
+    ("ab", "ab̸cd", False),
     # --- case and diacritics
     ("cafe", "café", False),
     ("café", "CAFÉ", True),
