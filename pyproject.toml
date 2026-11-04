@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "veritasqa"
+version = "0.1.0"
+description = "Evidence-first, LLM-free extractive question answering over PDF documents."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pymupdf==1.26.6",
+    "pdfplumber==0.11.10",
+    "pydantic==2.14.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.2.0"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers"
+markers = [
+    "integration: end-to-end tests over generated PDFs and SQLite",
+    "requires_tesseract: needs the tesseract binary on PATH; skipped otherwise",
+    "real_document: needs the owner's real PDF in data/documents; skipped otherwise",
+]

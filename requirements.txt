@@ -1,0 +1,15 @@
+# VeritasQA runtime and test dependencies (pinned).
+# Install into a Python 3.11+ environment:  python -m pip install -r requirements.txt
+#
+# Why these and not others:
+# - pymupdf is pinned to 1.26.6 on purpose. PyMuPDF 2.x pulls in onnxruntime, numpy, networkx,
+#   pymupdf4llm and pymupdf_layout, none of which the extractive baseline needs. 1.26.6 declares
+#   no dependencies of its own.
+# - PyMuPDF is licensed AGPL-3.0 or commercially. Review that before distributing the project.
+# - No generative or hosted model dependency exists anywhere in this list (SPEC §1).
+# - Not included on purpose: numpy, scikit-learn, spaCy/NLTK, FastAPI, any vector database.
+#   Each is added only when a benchmark justifies it (SPEC §2.8, §13).
+pymupdf==1.26.6
+pdfplumber==0.11.10
+pydantic==2.14.2
+pytest==9.2.0
