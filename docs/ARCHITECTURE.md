@@ -96,10 +96,11 @@ These contracts are fixed now so that later phases can rely on them.
 - FTS5 `bm25()` returns smaller, more negative values for better matches. Candidates are sorted by `bm25() ASC`. The raw value is kept for audit and is never exposed as a probability (`SPEC §4`, `§9`). P0 tests pin this direction.
 - Queries are never passed to FTS5 unquoted. Each query phrase is normalized and passed as one quoted FTS5 string, with its double quotes doubled (§12). All values are bound as SQL parameters.
 - The FTS5 `unicode61` tokenizer splits `3.5` into `3` and `5`. Phrase search therefore uses FTS5 for candidates and then a deterministic substring check on normalized text. Numbers, units and dates are checked again in verification (P6).
-- Heading text sits in a separate FTS5 column so its weight can be tuned (P4).
+- Heading text sits in a separate FTS5 column so its weight can be tuned (P4, §13).
+- **BM25 statistics are per document (P4, D39).** `bm25()` runs on an index built from one document's body units (§13). Adding a second document to the store therefore leaves the first document's scores and ranking unchanged, as §1A requires.
 - Reciprocal Rank Fusion is not implemented. It is added only if a measured benchmark shows a gain (`SPEC §4`).
 - Candidate depth K is configurable. Recall is measured at several K values; top-3 is never assumed sufficient.
-- **Controlled synonym and stemming rules (P4, D17).** Recall only. The rules live in a versioned data file (planned `config/retrieval_rules.toml`). Each rule has an ID, a version, positive examples, counter-examples and a reviewer note. Expansion is query-time and one-way: a query term may add listed alternatives, and the index is never rewritten. Each expansion is recorded in the retrieval trace with its rule ID. Expanded matches only add candidates. The entity, value, negation and condition checks (§5) run on raw text and cannot be satisfied by an expansion alone.
+- **Controlled synonym and stemming rules (P4, D17, D38, D43).** Recall only. The rules live in `config/retrieval_rules.toml`, with the format and the expansion rules in §13. Each rule has an ID, a version, positive examples, counter-examples and a reviewer note. Expansion is query-time and one-way: a query term may add listed alternatives, and the index is never rewritten. Each expansion is recorded in the retrieval trace with its rule ID. Expanded matches only add candidates, and they are marked `expansion_only`. The entity, value, negation and condition checks (§5) run on raw text and cannot be satisfied by an expansion alone. No rule is approved in V1 (D43).
 - **No stemming in the index for V1.** SQLite's FTS5 `porter` tokenizer exists in this build (SQLite 3.49.1): with it, the query `run` matches `running`. The tokenizer is fixed per FTS table, so it cannot be switched per query, and a stemmed index would need a second FTS table. It is not used unless the P4 regression set shows a need.
 - **TF-IDF is an experiment, not a neural model.** scikit-learn TF-IDF is sparse lexical weighting over the same index text. It is benchmark-only (P9a), outside the acceptance path, and never shown as similarity or as an embedding.
 - **No dense retrieval or reranking in V1.** Embeddings, vector search and cross-encoders are outside V1 (D17).
@@ -457,11 +458,11 @@ Implemented in `app/storage` (schema, integrity checks, repository, `Store`) and
 **Results.** `find_phrase(store, document_id, phrase) -> list[EvidenceUnit]`, ordered by `(pdf_page, ordinal)`. A unit with `derived = True` is a candidate only. Its spans point at real text, but its `index_text` is generated and must not be quoted (P6). Header and footer units are never returned.
 
 **Known limits (P3).**
-- No stemming, synonyms or ranking. Those belong to P4. The FTS5 index uses the default unicode61 tokenizer.
+- No stemming, synonyms or ranking in the exact check. Ranking is P4 (§13), and the FTS5 index uses the default unicode61 tokenizer.
 - CJK text without spaces forms long token runs. A phrase inside a run is not found (`文字` does not find `文字の認識`), but a phrase equal to a whole run is found. Substring retrieval for CJK needs another tokenizer, which V1 does not plan.
 - Case folding means `US` also finds `us`. P5 and P6 decide entity and value matches. P3 only proposes candidates.
 - A phrase copied from a table row's generated `index_text`, with its ` | ` or ` = ` glue, is not found. This is by design.
-- BM25 statistics are index-wide, because all documents share one FTS table. A second document changes the scores of the first. This is a P4 concern (see the P4 handoff).
+- BM25 statistics are per document (P4, D39, §13). The ranking index holds one document's body units, so a second document in the store does not change the scores of the first. Scores from different documents must not be compared.
 - **A private-use character glued to a word hides the word.** `abcd` is one token for unicode61 and one word for the exact check, so `ab` and `cd` do not find it (pinned in `test_p3_phrase_check.py`). A symbol-font glyph with no space beside a word has this effect.
 - **Derived table rows are found only through the text their generated index states.** P2 writes a row's `index_text` from the cells whose column has a header (§11), and it joins adjacent cells that share one raw line into one span (D28). So a value in a headerless column, or a phrase that crosses a cell boundary, does not find its row. The exact check accepts such a phrase where the span is verbatim, so the gap is a missed candidate, never a false acceptance. The recall test excludes exactly the windows that the row's index does not state: 16 of 481 on the public corpus, all derived rows.
 
@@ -474,3 +475,49 @@ So every value is found through a cell unit, and what a derived row loses is onl
 
 - **Case folding follows the index, not Python alone.** On this build (SQLite 3.49.1) the index does not fold 416 of the 1,432 cased single characters in planes 0 and 1 (`index_foldable_characters`). They are mostly Cherokee, Old Hungarian, Georgian Mtavruli, Osage, Vithkuqi, Adlam, Warang Citi and Medefaidrin, with some Latin, Cyrillic, Greek and Glagolitic capitals. For those characters the phrase search is case-sensitive: `Ꭰ` does not find `ꭰ`, and that is a recall miss, never a false acceptance. The calibration follows the SQLite build, so an upgrade changes the set without a code change (`tests/unit/test_p3_case_folding.py`).
 - **Recall evidence (P3, public corpus).** `tests/integration/test_p3_corpus.py` cuts whitespace windows from the normalized text of 174 sampled units across eight body content types, including every span of the sampled rows and cells. 465 windows were checked, and each found its own unit; 16 more were excluded as derived-row windows that the index does not state (above). That is recall for the windows the index states. It is not measured recall for the owner's document (B1, B3).
+
+## 13. Retrieval contracts (P4)
+
+Implemented in `app/retrieval` (`bm25.py`, `terms.py`, `rules.py`, `config.py`, `errors.py`) and in the store's read methods listed below. Configuration: `config/retrieval.toml` and `config/retrieval_rules.toml`. Errors: `QueryError` (the query is not text, or has no letter or digit), `StorageError` (no such document), and `RetrievalConfigError` with its subclass `RuleConfigError` (a configuration file is invalid).
+
+**Entry point (D40).** `search(store, document_id, query, *, k=None, weights=None, context_window=None, expansion_k=None, rules=None, config=None) -> RetrievalResult`. An argument left at `None` takes its value from `config/retrieval.toml`. A parameter sweep passes its values as arguments, so it never edits the configuration file.
+
+**Query words.** The query passes the P3 query validation and `normalize_with_map`. The normalized text is split at its single spaces. Each word is folded with `fold_case`, which follows the index, and duplicate words are removed. Each word becomes one quoted FTS5 string, with its double quotes doubled. The words are joined with `OR`. No stop-word list is used, because the IDF weight already lowers common words.
+
+**Statistics are per document (D39).** `bm25()` runs on a temporary FTS5 table, `temp.document_bm25`. It has the same columns and tokenizer as `evidence_fts`, and it holds only the body units of the requested document. It is rebuilt on each search, which costs about 6 ms for 3,000 units on SQLite 3.49.1. The stored `evidence_fts` table is unchanged, and it remains the index for the exact-phrase candidate step (§12).
+
+**Ranking.** `bm25(document_bm25, weight_index, weight_heading)`, sorted by the raw value ascending and then by `evidence_id`. A candidate's rank is its position in the result. The raw value is kept as `bm25_raw` for audit only. It is never a probability (SPEC §9).
+
+**Expansion (one-way, recall only).** `expand_words` finds each rule's query terms as contiguous runs of folded query words. Each match adds the rule's alternatives. An alternative is quoted as an FTS5 phrase, so the words of a multi-word alternative must be adjacent. Every applied alternative is recorded in `trace.applied_rules` with the query term, the rule ID, the rule version and the alternative. The trace also holds the rule-set fingerprint, a SHA-256 of the canonical rule list. A unit that a rule reaches and no original query word reaches has `via = "expansion"` and `expansion_only = True`. Its `rule_ids` lists the rules whose alternatives reached it.
+
+**Slots (D41).** The original-word hits come first. After duplicate removal, the first `k` of them are returned. Expansion-only hits follow, and at most `expansion_k` of them are returned. An expansion never takes an original hit's place. A unit that an original word reaches always has `via = "original"`.
+
+**Duplicates.** The key is the SHA-256 of `normalize_text(raw_text)`. Hits are read in rank order. The first hit with a key is kept. Each later hit with the same key is removed from the candidates and listed in the kept candidate's `duplicate_evidence_ids`. Removal happens before the `k` cut, and the removed copies are counted in `trace.duplicates_removed`. Nothing is dropped without a record.
+
+**Context (D42).** A candidate's `context` holds:
+- `before` and `after`: up to `context_window` body units before and after the candidate, in (`pdf_page`, `ordinal`) order. Header and footer units are skipped. Units in other sections and derived table rows are included.
+- `section_heading_id` and `parent_heading_id`: the heading units of the candidate's section and of its parent section.
+
+Context is never a candidate, never replaces one and is never quoted on its own. A separate list of all section siblings is not attached, because a whole section on every candidate would be too large. The in-section neighbours inside the window are the siblings.
+
+**Carried flags.** Every candidate carries `derived` (a generated table row, which must never be quoted) and `extraction_quality` (`verified`, `warning` or `unverified`). Units from unverified pages are returned, not filtered, so that abstention can see them. P6 and P7 decide what they may support.
+
+**Exact terms (D43).** `terms.extract_terms` finds numbers (`3.5`), percentages (`10%`), dates (`2024-01-01`, `4 March 2024`, `March 4, 2024`) and identifiers (`ABC-123`) in the query. Each candidate lists the query terms whose exact phrase is found in its raw text, using the P3 exact check (`exact_terms`). This is information for P6. It does not change the ranking. BM25 still matches `3.5` inside `3.5.2`, so a candidate without an exact term is a candidate, not a match.
+
+**Store read methods (P4).** Each one takes a `document_id`, and each one scopes its SQL to it.
+- `Store.document_bm25_index(document_id)`: a context manager that yields a `DocumentBm25Index`. It has `rank(fts_match, weights)`, which returns `(evidence_id, bm25_raw)` pairs in rank order, and `indexed_ids()`.
+- `Store.unit_summaries(document_id, evidence_ids)`: the rank-independent fields of each unit.
+- `Store.body_neighbours(document_id, pdf_page, ordinal, window)`: the body units before and after a position.
+- `Store.section_headings(document_id, section_id)`: the heading unit IDs of a section and of its parent.
+
+**Configuration.** `config/retrieval.toml`, section `[retrieval]`: `k` (at least 1), `expansion_k` (at least 0), `weight_index` (above 0), `weight_heading` (above 0) and `context_window` (at least 0). Unknown keys are rejected. Every value is an uncalibrated default, and P9a sweeps them on the development split only.
+
+`config/retrieval_rules.toml`: `rules_version = 1`, then zero or more `[[rule]]` tables. Each rule has `id` (lowercase, unique), `version` (an integer), `query_terms` (at least one), `alternatives` (at least one), `positive_examples` and `counter_examples` (each at least one `{query, text}` table) and `reviewer_note`. Stemming rules list the inflected forms explicitly; no stemmer runs. On loading, the P3 exact check verifies each rule against its own examples: every positive example's text must contain one of the alternatives, and no counter-example's text may contain one. A rule that fails its examples is rejected.
+
+**Limits (P4).**
+- Recall depends on the query words. A synonym that no rule lists is not found, and no rule is approved yet (D43).
+- No stemming: `run` does not match `running` unless a rule lists it.
+- BM25 candidates are a superset of exact matches (P3 limit): `3.5` also matches `3.5.2`.
+- Stop words are not removed, so a long question returns many candidates, and `k` cuts them.
+- Statistics are per document, so scores from two documents must not be compared.
+- On a very small document, a term that occurs in more than half of its units has an IDF that FTS5 clamps to 1e-6, so many scores tie. The tiebreak is `evidence_id`.
