@@ -522,3 +522,60 @@ Context is never a candidate, never replaces one and is never quoted on its own.
 - Statistics are per document, so scores from two documents must not be compared.
 - On a very small document, a term that occurs in more than half of its units has an IDF that FTS5 clamps to 1e-6, so many scores tie. The tiebreak is `evidence_id`.
 - Recall is measured, not gated (D44). On the public corpus, 179 of 180 sampled windows return their own unit within K = 50, and 174 of 180 within K = 10. The one miss is a window of common words against a long unit, and it is recorded in `PROGRESS.md` (P4).
+
+## 14. Question analysis and evidence selection contracts (P5)
+
+Implemented in `app/question_processing` (`analysis.py`, `vocabulary.py`, `errors.py`) and `app/evidence` (`values.py`, `segment.py`, `markers.py`, `selection.py`, `errors.py`). Standard library and Pydantic only (`tests/unit/test_p0_dependencies.py`). No module makes a model call, a network call or a random choice. Errors: `QuestionError` (the question is not text, is blank, or has no letter or digit) and `SelectionError` (the inputs do not line up: a missing retrieval result, a result for a different query, or a missing unit).
+
+**Question analysis (D52, D53).** `analyze(question: str) -> QuestionAnalysis`.
+- `QuestionAnalysis`: `question` (as given), `components` (a tuple in question order, never empty), `compound` (true when there is more than one component).
+- `QuestionComponent`: `component_id` (`c1`, `c2`, …), `text` (a verbatim slice of the question), `question_type` (`QuestionType`), `type_rule` (the rule that set the type, for example `type.how_many.v1`), `target_terms` (the subject words), `attribute_terms` (the requested-property words), `value_intent` (`ValueIntent`: `none`, `number`, `date_or_period`), `negated` (the question contains a negation word), `condition_terms` (condition words in the question), `reason` (why the component cannot be searched, or `None`), `flags`. The property `retrieval_query` is the target terms followed by the attribute terms, space-separated, without duplicates. It is the text the caller passes to `search()`.
+- `QuestionType`: `what`, `who`, `when`, `where`, `how_many`, `which`, `whether`, `conditions`, `comparison`, `unsupported`.
+- Compound questions are split at a question mark, and at `and`, `or` or `;` when the words after the separator open a new question (for example `who`, `when`, `is`, `does`). A later clause that uses a referential pronoun (`it`, `they`, `them`, `its`, `their`, `he`, `she`, `him`, `her`) takes the target terms of the clause before it (flag `target_inherited`). Its own words are predicates and do not replace that subject. If the clause before it has no target terms, the later clause is ambiguous (flag `pronoun_without_subject`). A pronoun in a single question, as in `is it permitted`, is not treated this way (D56). A comparison is split into one component per subject only when the subjects are explicit (`between A and B`, `A versus B`, `compare A with B`). Otherwise the component is `ambiguous` (flag `subjects_unclear`).
+- Unsupported: a question that opens with no recognised question word, `why` questions, and `how` questions that are not about a quantity (for example `how is the fee calculated`). The component has `reason` set and is never searched.
+- Ambiguous: a component with no target terms (for example `what is the maximum amount?`). The reason is recorded and the component is never searched.
+- Target terms are the content words that are not function words, question words or attribute words. Attribute words come from a controlled list (for example `amount`, `limit`, `period`, `fee`, `days`), together with light predicate verbs (`apply`, `need`, `require`, `include`, `happen`, and similar). Neither kind is required in the sentence (D53). No stemming and no synonyms are applied (D38, D58).
+
+**Evidence values (D51).** `find_values(text, *, count_nouns=()) -> tuple[Value, ...]`. `Value` has `kind` (`number`, `percent`, `currency`, `date` or `period`), `text` (verbatim), `start` and `end` (half-open offsets in `text`), `unit` (lower-case label or `None`), `range` (a numeric or year range) and `negative`. `count_nouns` are words from the question that count the number in front of them.
+- Not values: a token with more than one separator (`3.5.2`, `1,2,3`), a hyphen-glued identifier (`ABC-123`, `800-53`), and a footnote mark glued after a letter or punctuation (`FISMA,1`, `agencies.2`). A number followed by a unit may be separated by spaces or line breaks (`30 \n\ndays`). The quote stays the raw slice. A hyphenated unit is read (`30-day`).
+
+**Sentences (D50).** `sentence_spans(text) -> tuple[tuple[int, int], ...]`, half-open offsets into `text`. A sentence ends at `.`, `?` or `!` followed by whitespace and a capital letter, a digit or an opening quote. Line breaks are whitespace, so a line wrap never ends a sentence. A full stop after an abbreviation (`e.g.`, `i.e.`, `vs.`, `No.`, `Dr.`, `U.S.`, initials, `et al.`) does not end a sentence unless the next word is a sentence-opening word (`The`, `This`, `It`, …). A full stop before a lower-case letter never ends a sentence.
+
+**Markers.** `find_markers(text, kind)` for `permission` (with a `negative` flag, for example `must not`, `is not permitted`, `prohibited`, `is required`), `condition` (`if`, `unless`, `provided that`, `except`, `subject to`, `only if`, `when`, `where`) and `list` (`including`, `such as`, `the following`). Longer phrases win over their parts, and matches do not overlap.
+
+**Selection (D45–D49, D54).** `select_candidates(analysis, retrieved, units) -> SelectionResult`.
+- `retrieved`: a mapping from `component_id` to the `RetrievalResult` of `search(store, document_id, component.retrieval_query)`. A searchable component without an entry, or a result whose `query` differs from `retrieval_query`, raises `SelectionError`.
+- `units`: a mapping from `evidence_id` to the `EvidenceUnit` for every candidate the retrieval returned (loaded with `Store.load_unit`). A missing unit raises `SelectionError`.
+- `SelectionResult`: `question` and `components`, one `ComponentSelection` per analysis component, in order. A component is never omitted, even when it has no candidates.
+- `ComponentSelection`: `component_id`, `question_type`, `status` (`ComponentStatus`: `candidates`, `expansion_only`, `no_candidates`, `unsupported`, `ambiguous`), `reasons` (a tuple of plain-text reasons, for example `no retrieved sentence contains every target term`), `candidates` (in retrieval rank order) and `dropped`.
+- `status` is `candidates` when at least one candidate was reached by an original query word, and `expansion_only` when only reviewed rules reached them (D38: never support). `candidates` does not mean the question is answered. Verification (P6) and the decision (P7) decide that.
+- `AnswerCandidate`: `component_id`, `question_type`, `retrieval` (the P4 `RetrievalCandidate`, kept by reference, so its scores, `via`, `rule_ids`, `duplicate_evidence_ids` and context stay with retrieval), `pdf_page` and `section_id` (the citation, SPEC §6, taken from the unit, D57), `rule_id`, `granularity` (`sentence` or `passage`), `quote` (verbatim), `page_start` and `page_end` (half-open offsets into the page's raw text, so `page_text[page_start:page_end] == quote`), `answer_span`, `answer_page_start`, `answer_page_end` and `answer_kind` (all `None` when no rule gives an answer span), `values` (the values in the quote, with offsets relative to the quote), `negated` (for a permission marker), `attribute_hits` (the question's attribute words found in the quote) and `flags`.
+- `DroppedCandidate`: `evidence_id` and `reason`. Only two reasons exist: `derived_row` (a generated table row is never quoted, D28) and `crosses_source_span` (a quote would join two source spans, so it is not verbatim). Nothing is dropped silently.
+
+**Rules (version 1).** Each candidate records the rule that produced it.
+
+| Rule | Question type | Quote granularity | Answer span |
+| --- | --- | --- | --- |
+| `what.sentence.v1` | what | sentence containing every target term | none (`no_answer_span`) |
+| `who.sentence.v1` | who | sentence | none (`no_answer_span`) |
+| `where.sentence.v1` | where | sentence | none (`no_answer_span`) |
+| `which.sentence.v1` | which | sentence (flag `list_marker` when a list marker is present) | none (`no_answer_span`) |
+| `when.date_or_period.v1` | when | sentence with a date or period | the date or period, when exactly one is present (otherwise `multiple_values`) |
+| `how_many.value_with_unit.v1` | how many | sentence with a number and a unit, a percentage, a currency amount, or a number with a count noun from the question | that value, when exactly one is present (otherwise `multiple_values`) |
+| `whether.permission_marker.v1` | whether | sentence with a permission or prohibition marker | the marker, when exactly one distinct marker is present (otherwise `multiple_markers`); `negated` from its polarity |
+| `conditions.passage.v1` | conditions | the whole passage (the unit) with a condition marker and every target term | none (`no_answer_span`) |
+| `comparison.subject_sentence.v1` | comparison | sentence containing the subject's target terms (flag `comparison_subject`) | none (`no_answer_span`) |
+
+- Table cells (`table_cell`) are passage-only: the quote is the whole cell, the flag `table_cell` is set, and no answer span is given, even for a value (D48).
+- Derived table rows (`table_row`, `derived = True`) are never quoted. Each one is listed in `dropped` with reason `derived_row` (D48, the P4 handoff rule, until Q12 is settled).
+- A quote that crosses a join between source spans is never built, because it would not be verbatim. Its unit is listed in `dropped` with reason `crosses_source_span` (D49).
+- A quote containing U+FFFD (the replacement character, as in `nation�s`) is kept and flagged `replacement_character`. It is not dropped, because P6 decides what it may support.
+- `ComponentSelection.status` is `ambiguous` or `unsupported` for those components, and no retrieval result is required for them.
+- Determinism: the same question, the same retrieval results and the same units give the same `SelectionResult`, including order.
+
+**Limits (P5).**
+- The rules cover the nine supported question types. Name and place extraction is not attempted (D47), so `who` and `where` answers are passages only.
+- Written numbers (`three days`) are not values. A passage with only a written number cannot give a `how_many` answer span.
+- Only the candidates that retrieval returned are examined, so the retrieval depth `k` limits recall.
+- A target term must appear in the same sentence as the value or marker. An answer split across two sentences is not found.
+- The abbreviation list and the marker lists are uncalibrated heuristics. They are reviewed on the public corpus, and the counts of how often each rule fires are recorded in `PROGRESS.md` (P5). Nothing is tuned to a gold answer.
