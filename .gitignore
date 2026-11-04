@@ -33,13 +33,11 @@ data/indexes/*
 data/evaluations/runs/
 # data/evaluations/gold/ is deliberately NOT ignored: hand-made gold annotations cannot be regenerated.
 
-# --- Model artifacts, weights, caches and local secrets (P0-ENV) ---
-# Downloaded model files and local caches live under models/ and are never committed.
-# Tracked there: models/README.md and the JSON manifests (repo, revision, licence, SHA-256).
+# --- Model artifacts, weights, caches and local secrets ---
+# V1 uses no model (D17). These rules are a guard: no weight or model cache is committed by accident.
+# models/README.md is the only tracked file under models/.
 models/**
 !models/README.md
-!models/manifests/
-!models/manifests/**
 # Weight and checkpoint formats, wherever they appear.
 *.safetensors
 *.bin
@@ -51,9 +49,8 @@ models/**
 *.ot
 *.msgpack
 *.gguf
-# Local environment variables and secrets. .env.example is the tracked template.
+# Local environment variables and secrets. VeritasQA reads no .env file (D17).
 .env
 .env.*
-!.env.example
-# NLTK data downloads (stored under models/nltk_data/; the name is also ignored here).
+# NLTK data is not used in V1 (Q6). The name stays ignored as a guard.
 nltk_data/

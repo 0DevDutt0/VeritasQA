@@ -1,24 +1,15 @@
 # Optional experimental group (D17, 2026-11-04). Not part of the V1 baseline.
-# Validated on Windows 11, CPython 3.12.10 during P0-ENV. That validation used the torch build from
-# requirements-gpu.txt. The GPU group is removed from the V1 plan, so this file no longer needs torch.
 #
-# Status of each pin under D17:
 # - numpy, scikit-learn: optional TF-IDF baseline. Benchmark-only (P9a) and outside the acceptance path.
 #   TF-IDF is sparse lexical weighting, not a neural embedding.
-# - spacy, nltk: optional, pending the owner's decision (Q6). Not named in the V1 retained list.
-#   The NLTK punkt_tab resource is a learned model, and this project does not verify its digests.
-# - rapidfuzz: recommended removal (Q6). It is not in the V1 retained list, and approximate matching
-#   works against exact-evidence retrieval.
-# - sentence-transformers and huggingface-hub: removed from this file by D17. Their installed copies
-#   stay in the project venv until P0-CLEAN is approved (Q7).
+# - Removed by the owner's decision on Q6 (2026-11-04): spaCy, NLTK with its punkt_tab resource, and
+#   rapidfuzz. P5 is planned as a deterministic, abbreviation-aware splitter in Python.
+# - Removed by D17 and P0-CLEAN: PyTorch, sentence-transformers, huggingface-hub and every model.
 #
-# Install only if the owner keeps this group (Q6):
-#   python -m pip install -r requirements-experimental.txt
+# The project venv installs this group so that the P9a baseline can run. The baseline pipeline does not
+# need it:  python -m pip install -r requirements.txt -r requirements-experimental.txt
 #
-# None of these packages is imported by the baseline pipeline. Each would enter the pipeline only after
-# a benchmark on the development split justifies it (SPEC §4, §9; P9a).
+# No pipeline module imports these packages. Each would enter the pipeline only after a benchmark on the
+# development split justifies it (SPEC §4, §9; P9a).
 numpy==2.5.4
 scikit-learn==1.9.1
-spacy==3.8.18
-nltk==3.10.4
-rapidfuzz==3.14.6

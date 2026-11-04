@@ -1,6 +1,6 @@
 # VeritasQA Architecture
 
-Status: P0 (foundation), revised 2026-11-04 by decision D17 to a deterministic, LLM-free and embedding-free V1. This document is the design reference. The phase-by-phase execution plan and completion status are in [`PROGRESS.md`](../PROGRESS.md). The authoritative requirements are in [`SPEC.md`](SPEC.md); section references below use `SPEC §n`. Where SPEC §4 or §13 differ from the V1 plan, §1A and D17 govern.
+Status: P0 (foundation), revised 2026-11-04 by decision D17 to a deterministic, LLM-free and embedding-free V1. P0-CLEAN (2026-11-04) removed the historical GPU and model layers. This document is the design reference. The phase-by-phase execution plan and completion status are in [`PROGRESS.md`](../PROGRESS.md). The authoritative requirements are in [`SPEC.md`](SPEC.md); section references below use `SPEC §n`. Where SPEC §4 or §13 differ from the V1 plan, §1A and D17 govern.
 
 ## 1. Purpose and non-goals
 
@@ -32,7 +32,7 @@ The owner's change of plans of 2026-11-04 makes V1 a purely deterministic, LLM-f
   | Tesseract OCR (optional fallback) | P1 | External binary. Not installed on this machine (B2) |
 
 - **Removed from the V1 plan (D17).** Sentence-transformers and the embedding and cross-encoder models; dense and vector retrieval; reranking; PyTorch and CUDA; vector databases; generative LLMs; model downloads at run time.
-- **Import target.** No V1 pipeline module imports torch, sentence_transformers, transformers, huggingface_hub or rapidfuzz. The baseline modules (`app/common/errors.py`, `app/common/files.py`, `app/storage/fts5.py`) meet this now. `app/common/device.py` and `app/common/models.py` still import torch or sentence-transformers lazily; P0-CLEAN removes them (`PROGRESS.md`).
+- **Import target.** No V1 pipeline module imports torch, sentence_transformers, transformers, huggingface_hub, spacy, nltk or rapidfuzz. P0-CLEAN (2026-11-04) removed the two modules that imported torch or sentence-transformers lazily. `tests/unit/test_p0_dependencies.py` enforces the rule: it scans the requirement files, `pyproject.toml`, the imports under `app/`, and the modules that importing the package loads.
 
 ## 2. Pipeline and package map
 
@@ -59,7 +59,7 @@ Shared primitives that already exist:
 - `app/common/errors.py`: `VeritasQAError` (base) and `StorageError`. Phase-specific subclasses are added where first raised.
 - `app/common/files.py`: UTF-8 read/write helpers for text and JSON. Every file VeritasQA reads or writes uses them, so Windows' cp1252 default never applies. Output uses LF newlines.
 - `app/storage/fts5.py`: `ensure_fts5_available()` and `fts5_available()`. They probe FTS5, phrase queries and `bm25()` on a private in-memory database and raise `StorageError` when any is missing.
-- `app/common/device.py`, `app/common/models.py` and the P0-ENV scripts: historical, outside the V1 plan (D17). P0-CLEAN removes them.
+- The P0-ENV GPU and model modules (`app/common/device.py`, `app/common/models.py`) and scripts were removed in P0-CLEAN (2026-11-04). Their history is in git up to commit `e57c443`.
 
 ## 3. Data contracts
 
@@ -133,9 +133,9 @@ evaluations(run_id PK, created_at, split, config_json, metrics_json, dataset_sha
 
 Every write uses parameterized SQL. The FTS5 table is queried only through bound parameters.
 
-## 7. Dependency plan (D17)
+## 7. Dependency plan (D17, after P0-CLEAN)
 
-The V1 dependency plan is the set of packages that the retained components need, plus the optional groups the owner has allowed. The measured inventory of the project venv (83 installed distributions, 2026-11-04) is classified in `PROGRESS.md` under P0-ENV, "Classification under D17".
+The V1 dependency plan is the baseline plus one optional group that the owner allowed. The lock `requirements-validated.txt` records the whole project venv. The pre-cleanup inventory (83 installed distributions, 2026-11-04) is classified in `PROGRESS.md` under P0-ENV, "Classification under D17". P0-CLEAN then removed the historical layers, as recorded there and in the P0-CLEAN section.
 
 **Baseline (V1, necessary).** `requirements.txt`:
 
@@ -148,31 +148,32 @@ The V1 dependency plan is the set of packages that the retained components need,
 | sqlite3 (stdlib) | Python 3.12.10 bundles SQLite 3.49.1 | Persistence, FTS5, BM25 | Availability checked at startup. |
 | Tesseract OCR | external binary | OCR fallback (P1) | Not a Python dependency. Called as a CLI with an argument list, never through a shell. Not installed here (B2). |
 
-The baseline closure is 20 distributions, 170.7 MB installed: the four pins above and 16 transitive packages.
+The baseline closure is 20 distributions: the four pins above and 16 transitive packages. It contains no NumPy.
 
-**Optional (not in the baseline; not imported by it).**
+**Optional (`requirements-experimental.txt`; not in the baseline, and not imported by it).**
 
 | Group | Packages | Status |
 | --- | --- | --- |
-| TF-IDF baseline | numpy 2.5.4, scikit-learn 1.9.1 (with scipy, joblib, threadpoolctl, narwhals, cloudpickle) | Optional. Sparse lexical weighting, benchmark-only (P9a), outside the acceptance path, never an embedding. Stays out of `requirements.txt`. |
-| NLP | spaCy 3.8.18, NLTK 3.10.4 (with the `punkt_tab` resource) | Optional, pending the owner's decision (Q6). Not named in the retained list. P5 is planned as a deterministic, abbreviation-aware splitter in Python; spaCy and NLTK are kept only if P5 measurements justify them. |
-| Owner decision | rapidfuzz 3.14.6 | Recommended removal (Q6). Approximate matching would accept inexact matches, and no retained component needs it. |
+| TF-IDF baseline | numpy 2.5.4 and scikit-learn 1.9.1, with their dependencies (listed in the lock) | Optional. Sparse lexical weighting, benchmark-only (P9a), outside the acceptance path, never an embedding. Installed in the project venv so that the P9a baseline can run. |
 
-**Removed from the V1 plan (D17).** These items are still installed, and their files are still present, until P0-CLEAN is approved (Q7). The removal is a rebuild of the project venv, not an in-place uninstall.
+**Removed from the V1 plan.** P0-CLEAN (2026-11-04) removed these items from the project venv, the repository and the model folder. The owner's decision on Q6 removed spaCy, NLTK and rapidfuzz. D17 removed the rest.
 
-| Item | Packages or files | Reason |
+| Item | Removed | Reason |
 | --- | --- | --- |
-| PyTorch and CUDA | torch 2.14.1+cu130 (its CUDA runtime and cuDNN DLLs are inside the package), and sympy, networkx, mpmath, filelock and fsspec, which only the removed layers need | Owner directive: CUDA is not required for the V1 retrieval and verification pipeline. |
+| PyTorch and CUDA | torch 2.14.1+cu130, and the packages that only the removed layers needed (sympy, networkx, mpmath, filelock, fsspec) | Owner directive: CUDA is not required for the V1 retrieval and verification pipeline. |
 | Embedding and reranking models | sentence-transformers, transformers, tokenizers, safetensors; the models all-MiniLM-L6-v2 and ms-marco-MiniLM-L6-v2 | Owner directive: no embeddings and no cross-encoders. |
-| Model download tooling | huggingface-hub, hf-xet, httpx2, httpcore2, truststore, PyYAML; `scripts/download_models.py` | Only used to fetch the models above. `huggingface-hub` was also a pin in `requirements-experimental.txt`, which D17 removed. |
-| GPU device code and files | `app/common/device.py`, `app/common/models.py`, `requirements-gpu.txt`, `constraints-gpu.txt`, `requirements-validated.txt` (the full lock) | Served only the removed layers. The lock is regenerated from a fresh venv, not edited. |
+| Model download tooling | huggingface-hub, hf-xet, httpx2, httpcore2, truststore, PyYAML; `scripts/download_models.py` | Only used to fetch the models above. |
+| NLP and fuzzy matching (Q6) | spaCy 3.8.18, NLTK 3.10.4 with `punkt_tab`, rapidfuzz 3.14.6 | Owner decision Q6, 2026-11-04. P5 is planned as a deterministic, abbreviation-aware splitter. Approximate matching would accept inexact matches. |
+| GPU device code and files | `app/common/device.py`, `app/common/models.py`, `requirements-gpu.txt`, `constraints-gpu.txt`, `.env.example`, the model manifests | Served only the removed layers. |
 | Vector databases and generative LLMs | none installed | Excluded by SPEC §1 and the owner's directive. |
 
 Under D17 the owner's direction defines the V1 plan. It supersedes the P0-ENV layering (D12, D13, D16) and the earlier exclusion list of P0.
 
 **Tesseract OCR** is an external binary, not a Python dependency. The OCR adapter (P1) calls the `tesseract` CLI with an argument list (no shell) and works only when the binary is on PATH. It is not installed on this machine (see B2 in `PROGRESS.md`).
 
-The pins in `requirements.txt` were validated in a clean venv in P0 and P0-ENV. They did not change under D17, and the V1 baseline was re-verified after D17 (`PROGRESS.md`, P0-REV).
+**Lock.** `requirements-validated.txt` lists the 27 pins of the project venv: the baseline and the optional group, each at its exact version. It is produced with `pip freeze --exclude pip` from a fresh venv, and it is never edited by hand. The procedure is in [`docs/SETUP.md`](SETUP.md) §4.
+
+The pins in `requirements.txt` were validated in a clean venv in P0 and P0-ENV. They did not change under D17 or P0-CLEAN, and the V1 baseline was re-verified after each change (`PROGRESS.md`).
 
 ## 8. Risks, assumptions and limitations
 
@@ -183,7 +184,7 @@ The pins in `requirements.txt` were validated in a clean venv in P0 and P0-ENV. 
 - **Question understanding is rule-based.** Arbitrary natural language will not be understood. Unsupported or ambiguous questions must abstain (`SPEC §5`).
 - **Licence risk.** PyMuPDF's AGPL terms apply to distribution and network use. The owner should confirm this is acceptable for a public repository.
 - **Public repository.** The repository is public (anonymous `git ls-remote` succeeds). Source PDFs are git-ignored. Gold annotations under `data/evaluations/gold/` are tracked by default, so they become public; the owner must confirm this (open question Q2 in `PROGRESS.md`).
-- **Historical code is still present.** Until P0-CLEAN, `app/common/device.py`, `app/common/models.py`, the P0-ENV scripts and tests, and the project venv still import or contain torch and the two embedding models. The V1 target is met by the baseline modules only. Do not describe V1 as torch-free until P0-CLEAN passes its deny-list test.
+- **Historical code removed.** P0-CLEAN (2026-11-04) removed the GPU and model layers, the NLP packages, and the device and model tests. The deny-list test (`tests/unit/test_p0_dependencies.py`) now enforces the V1 rule. Run it before any claim that V1 is torch-free. Git history up to commit `e57c443` keeps the removed code.
 - **Platform.** Development is on Windows 11 with Git Bash and PowerShell. Tests write only to pytest temporary directories.
 
 ## 9. Reproducible setup
@@ -195,4 +196,4 @@ python -m venv .venv
 .venv/Scripts/python.exe -m pytest -q                         # baseline test suite
 ```
 
-The optional TF-IDF and NLP packages and the historical P0-ENV groups and scripts are described in [`docs/SETUP.md`](SETUP.md). Only the baseline is part of V1 (D17). The project venv used during development lives at `VeritasQA/` in the repository root. It is git-ignored and is not part of the project. The pins in `requirements.txt` were validated in a clean venv (see `PROGRESS.md`, P0 and P0-REV).
+The optional TF-IDF group is described in [`docs/SETUP.md`](SETUP.md). Only the baseline is part of V1 (D17). The project venv used during development lives at `VeritasQA/` in the repository root. It is git-ignored and is not part of the project. The lock `requirements-validated.txt` records the whole project venv, and [`docs/SETUP.md`](SETUP.md) §4 gives the procedure for regenerating it. The baseline pins were validated in a clean venv (see `PROGRESS.md`, P0, P0-REV and P0-CLEAN).

@@ -6,7 +6,7 @@
 
 Say **"continue"**. Then work through the first phase below whose status is `in progress` or `not started`, and follow the per-phase workflow. A phase whose status is `blocked` on an owner decision stops the run: report the open decision and wait. Do not start a later phase.
 
-**Current resume point (2026-11-04, D17):** P0-REV is complete. P0-CLEAN is `blocked` on the owner's decisions Q6 and Q7. Q8 and Q9 are also open, and Q9 must be answered before P4 is built. P1 has not started, and it must not start until the owner has decided Q6 and Q7 and said to continue.
+**Current resume point (2026-11-04, after P0-CLEAN):** P0-REV and P0-CLEAN are complete, and the owner decided Q6 and Q7 (D19). **P1 is next.** It starts on the next "continue". Q8 and Q9 are still open, and Q9 must be answered before P4 is built. Q4 (the PyMuPDF licence) is still open.
 
 | Item | Value |
 | --- | --- |
@@ -42,10 +42,10 @@ Say **"continue"**. Then work through the first phase below whose status is `in 
 | Phase | Name | Status | Exit-criteria command |
 | --- | --- | --- | --- |
 | P0 | Repository foundation, plan and architecture | complete | `pytest -q tests/unit/test_p0_foundation.py` |
-| P0-ENV | Environment bootstrap: CUDA torch, optional packages, pinned model artifacts (inserted before P1; see D11) | complete-with-limitations; **partly superseded by D17** | `pytest -q` (full suite), `scripts/validate_environment.py`, `scripts/validate_gpu.py`, `scripts/validate_models.py` |
+| P0-ENV | Environment bootstrap: CUDA torch, optional packages, pinned model artifacts (inserted before P1; see D11) | complete-with-limitations; **superseded by D17**; artifacts removed by P0-CLEAN | historical (its validation scripts were removed in P0-CLEAN) |
 | P0-REV | V1 revision: deterministic, LLM-free and embedding-free architecture, dependency plan and Phase 0 checklist (D17) | complete | `pytest -q` (full suite), `scripts/validate_environment.py` |
-| P0-CLEAN | Owner-approved cleanup of the GPU, model and optional layers; V1 venv rebuilt and lock regenerated (proposal under P0-CLEAN) | **blocked** (Q6, Q7) | `pytest -q` in a fresh V1 venv, `pip check`, deny-list import test |
-| P1 | PDF ingestion, extraction and page quality | not started (held until Q6 and Q7 are decided) | `pytest -q tests/unit/test_p1_*.py tests/integration/test_p1_*.py` |
+| P0-CLEAN | Owner-approved cleanup of the GPU, model, NLP and fuzzy-matching layers; V1 venv rebuilt and lock regenerated (D19) | complete | `pytest -q` in a fresh V1 venv, `pip check`, deny-list tests (`tests/unit/test_p0_dependencies.py`) |
+| P1 | PDF ingestion, extraction and page quality | not started (next; Q6 and Q7 are decided) | `pytest -q tests/unit/test_p1_*.py tests/integration/test_p1_*.py` |
 | P2 | Structure reconstruction, provenance and segmentation | not started | `pytest -q tests/unit/test_p2_*.py tests/integration/test_p2_*.py` |
 | P3 | SQLite schema, FTS5 and exact phrase retrieval | not started | `pytest -q tests/unit/test_p3_*.py tests/integration/test_p3_*.py` |
 | P4 | BM25 retrieval and candidate ranking | not started | `pytest -q tests/unit/test_p4_*.py tests/integration/test_p4_*.py` |
@@ -75,11 +75,8 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
 - **Q3.** Should Tesseract be installed for real OCR validation (see B2)?
 - **Q4.** PyMuPDF is AGPL-3.0 or commercially licensed (see `docs/ARCHITECTURE.md` §8). Is that acceptable for a public repository?
 - **Q5. Closed by D17.** The owner's 2026-11-04 revision reversed the GPU and model parts of P0-ENV (D12, D13, D16). Their results stay below as history. The inserted-phase reading of P0-ENV (D11) is kept as recorded. Nothing further is asked here.
-- **Q6. Decide the optional packages in the V1 plan.** The packages are measured in the P0-ENV inventory ("Classification under D17").
-  - *spaCy and NLTK, with the `punkt_tab` resource.* Neither is named in the V1 retained list or on the removal list. Recommendation: remove them from the V1 plan. P5 needs a deterministic, abbreviation-aware splitter, and `punkt_tab` is a learned model that this project does not verify by digest. Keep them only if P5 measurements show that the rule-based splitter loses.
-  - *rapidfuzz.* Not in the V1 retained list. Recommendation: remove it. Approximate matching accepts inexact matches, which works against exact-evidence retrieval.
-  - *scikit-learn and numpy (TF-IDF).* Recommendation: keep them as an optional, benchmark-only group outside `requirements.txt` and the acceptance path, as D17 allows.
-- **Q7. Approve the cleanup.** Approve the proposal under P0-CLEAN. Nothing is deleted, uninstalled or regenerated until you approve. The shared pip cache (18 GB) and the shared Hugging Face cache (9.7 GB) are not project-owned, and they are outside the proposal unless you ask otherwise.
+- **Q6. Closed (2026-11-04, owner).** Remove spaCy, NLTK (with its `punkt_tab` resource) and rapidfuzz from the V1 plan. Keep numpy and scikit-learn as an optional, benchmark-only group outside `requirements.txt` and the acceptance path (D19). P5 is planned as a deterministic, abbreviation-aware splitter. Reintroducing any of these packages needs a new owner decision, and the deny-list test would have to change with it.
+- **Q7. Closed (2026-11-04, owner): approved.** P0-CLEAN ran as proposed, with the Q6 choices above. The shared pip cache (18 GB) and the shared Hugging Face cache (9.7 GB) are not project-owned, and they were not touched.
 - **Q8. SPEC wording.** Keep `docs/SPEC.md` verbatim with the repository precedence note (D18), or re-issue the specification with the V1 revision? Recommendation: keep it verbatim.
 - **Q9. Synonym rules and acceptance.** The default stays conservative. An expansion can widen the candidate set, but it cannot satisfy the entity, value, negation or condition checks, which run on raw text (`docs/ARCHITECTURE.md` §4 and §5). Should reviewed rules ever count toward acceptance? A yes needs a per-rule flag such as `verification_eligible` (default off), a regression set that shows no false acceptances, and a decision recorded here. Recommendation: keep the default off. Answer this before P4 is built.
 
@@ -105,6 +102,7 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
 | D16 | **[Superseded by D17: PyTorch is outside V1.]** torch is pinned to `2.14.1+cu130`. torchvision and torchaudio are not installed. | The cu130 index tops out at 2.14.1, while PyPI lists 2.15.0 with a CPU-only Windows wheel. No code uses torchvision or torchaudio. |
 | D17 | **V1 is deterministic, LLM-free and embedding-free** (owner's change of plans, 2026-11-04). Removed from the V1 dependency and model-download plan: sentence-transformers, embedding models, dense retrieval, cross-encoder rerankers, PyTorch and CUDA, vector databases and generative LLMs. TF-IDF is kept only as an optional, benchmark-only baseline. It is sparse lexical weighting, never an embedding. Controlled synonym and stemming rules are added to P4 as recall-only, versioned and logged. Nothing is uninstalled or deleted until the owner approves the cleanup (Q7). | The owner's directive asks for maximum factual precision, minimum incorrect accepted answers and a light installation. CUDA is not required by the retrieval and verification pipeline. |
 | D18 | `docs/SPEC.md` keeps its verbatim body. Where SPEC §4 (optional embeddings and cross-encoder reranking) or SPEC §13 (spaCy and NLTK) differ from D17, D17 governs V1. A repository note in the SPEC header points to this decision. | The SPEC is the owner's text. A change of plan is recorded in the repository, not by rewriting the owner's prompt. Q8 asks the owner to confirm this. |
+| D19 | **Owner decisions, 2026-11-04.** Q6: spaCy 3.8.18, NLTK 3.10.4 (with the `punkt_tab` resource) and rapidfuzz 3.14.6 are removed from the V1 plan. numpy and scikit-learn stay as an optional, benchmark-only group outside `requirements.txt` and the acceptance path. Q7: the P0-CLEAN cleanup is approved and was carried out as proposed. | The owner's answers. They are recorded here so that later sessions do not reopen them. `tests/unit/test_p0_dependencies.py` enforces the removals. |
 
 ---
 
@@ -135,8 +133,8 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
 
 ### P0-ENV — Environment bootstrap, CUDA validation and pinned model artifacts (inserted before P1)
 
-- **Status:** complete-with-limitations; **partly superseded by D17** (see the revision note)
-- **Revision (D17, 2026-11-04):** the GPU layer and the two embedding and reranking models, with the download and validation scripts that serve them, are outside V1. They remain installed and in the repository until P0-CLEAN is approved (Q7). The results below stay as history. The classification of what is installed and downloaded follows the table in this section.
+- **Status:** complete-with-limitations; **superseded by D17**. P0-CLEAN removed its artifacts on 2026-11-04. The record below is history.
+- **Revision (D17, 2026-11-04):** the GPU layer and the two embedding and reranking models, with the download and validation scripts that serve them, are outside V1. P0-CLEAN removed them on 2026-11-04. The results below stay as history. The classification of what was installed and downloaded follows the table in this section.
 - **Reading taken (D11):** the "Phase 0 execution instructions" of 2026-11-04 describe an environment phase. The SPEC's P0 (repository foundation) was already complete, so this phase is recorded as P0-ENV and run before P1. P1 is not started. Q5 asks the owner to confirm this reading.
 - **Branch:** `phase/p0-env-bootstrap`, fast-forward merged into `main`.
 - **SPEC pointers:** §1 (constraints), §4 (optional components, benchmark-gated), §9 (calibration), §13 (dependencies), §15 (behaviour)
@@ -211,7 +209,7 @@ No `nvidia-*` package is installed. The CUDA runtime files (cudart, cublas, cudn
 
 ### P0-REV — V1 revision: deterministic, LLM-free, embedding-free (D17)
 
-- **Status:** complete (documentation, inventory and verification). The cleanup is a separate phase, P0-CLEAN, and it is blocked until the owner decides Q6 and Q7.
+- **Status:** complete (documentation, inventory and verification). The cleanup, P0-CLEAN, followed after the owner decided Q6 and Q7 (D19).
 - **Trigger:** the owner's change of plans of 2026-11-04 (D17). It asks for the architecture documentation, the dependency plan and the Phase 0 checklist to be updated first. It rules out Phase 1 work, and it rules out uninstalls and deletions until the inventory is reported.
 - **SPEC pointers:** §1 (constraints), §4 (retrieval), §13 (recommended technologies), §14 (phases), §16 (definition of done, item 11).
 - **Done:**
@@ -234,30 +232,43 @@ No `nvidia-*` package is installed. The CUDA runtime files (cudart, cublas, cudn
   - [x] Downloaded models, caches and the project venv inventoried, read-only.
   - [x] Existing test suite re-run after the documentation change (result above).
   - [x] V1 baseline re-verified in a fresh venv built from `requirements.txt` only (result above).
-  - [ ] Q6 decided by the owner (spaCy, NLTK, `punkt_tab`, rapidfuzz, TF-IDF).
-  - [ ] Q7 decided by the owner (cleanup approval).
+  - [x] Q6 decided by the owner (D19): spaCy, NLTK, `punkt_tab` and rapidfuzz removed; scikit-learn kept as an optional group.
+  - [x] Q7 decided by the owner (D19): the cleanup was approved.
   - [ ] Q8 decided by the owner (SPEC wording).
   - [ ] Q9 decided by the owner (synonym rules and acceptance; must precede P4).
-  - [ ] P0-CLEAN executed after approval.
-  - [ ] P1 not started; it is held until Q6 and Q7 are decided.
+  - [x] P0-CLEAN executed after approval (2026-11-04).
+  - [ ] P1 not started. It is the next phase.
 - **Limitations:**
-  - The historical code is still present and still imports torch lazily (`app/common/device.py`, `app/common/models.py`). The project venv still holds torch and both models. "V1 imports no torch" is the target until P0-CLEAN.
+  - The historical code is still present and still imports torch lazily (`app/common/device.py`, `app/common/models.py`). The project venv still holds torch and both models. "V1 imports no torch" was the target until P0-CLEAN, which met it on 2026-11-04.
   - SPEC §4 and §13 still describe the superseded options. D18 governs V1 until the owner decides Q8.
   - The pins did not change, so the earlier clean-venv validations (P0 and P0-ENV) still hold. The re-verification above confirms that for the current file.
 
-### P0-CLEAN — approved cleanup (blocked: Q6, Q7)
+### P0-CLEAN — owner-approved cleanup (complete, 2026-11-04)
 
-- **Status:** blocked. Nothing in this list has been executed. It starts only when the owner has decided Q6 and Q7.
-- **Scope (proposal):**
-  1. **Rebuild the project venv instead of uninstalling in place.** Create a new venv from `requirements.txt`, plus any optional group that the owner keeps under Q6. Run `pip check`, `pytest -q` and `scripts/validate_environment.py` in it. Delete the old project venv (`VeritasQA/`, 3.7 GB) only after that succeeds. An in-place uninstall would leave orphaned transitive packages.
-  2. **Remove the historical model artifacts:** `models/embeddings/`, `models/rerankers/`, `models/.hf-home/`, and the tracked manifests `models/manifests/*.json` (git history keeps them). Remove `models/nltk_data/` only if Q6 removes NLTK.
-  3. **Remove the historical code:** `app/common/device.py`, `app/common/models.py`, `scripts/download_models.py`, `scripts/validate_gpu.py`, `scripts/validate_models.py`. Reduce `scripts/validate_environment.py` to the baseline, since it currently checks torch, spaCy and NLTK.
-  4. **Remove the historical tests:** `tests/unit/test_p0env_device.py`, `tests/unit/test_p0env_manifests.py` (its last test asserts that a manifest exists), `tests/integration/test_p0env_gpu.py`, `tests/integration/test_p0env_device_negative.py` and `tests/integration/test_p0env_models.py`. Keep `tests/integration/test_p0env_nlp.py` only if Q6 keeps NLP. Remove the GPU and model skip logic from `tests/conftest.py`.
-  5. **Remove the markers and the setting:** `requires_cuda` and `requires_models` in `pyproject.toml`, and `.env.example` (`VERITASQA_DEVICE` has no V1 use).
-  6. **Dependency files:** delete `requirements-gpu.txt` and `constraints-gpu.txt`. Reduce `requirements-experimental.txt` as Q6 decides. Regenerate `requirements-validated.txt` from the new venv with `pip freeze`, or replace it with the freeze procedure in SETUP. Do not hand-edit the lock.
-  7. **Add a deny-list test** (`tests/unit/test_p0_dependencies.py`). No requirement file and no `pyproject.toml` dependency may name torch, torchvision, torchaudio, sentence-transformers, transformers, huggingface-hub, tokenizers, safetensors, a vector database (faiss, chromadb), or an LLM SDK (openai, anthropic). No module under `app/` may import them. Add rapidfuzz to the list if Q6 removes it.
-  8. **Out of scope:** the shared pip cache (18 GB; it held 17 GB before P0-ENV installed anything), the shared Hugging Face cache (9.7 GB, not written by this project) and Ollama. Purge them only if the owner asks.
-- **Exit criteria:** `pytest -q` in the new V1 venv passes; `pip check` is clean; the regenerated lock equals the venv's freeze; `scripts/validate_environment.py` reports baseline valid; the deny-list test passes.
+- **Status:** complete
+- **Decisions:** the owner answered Q6 and Q7 on 2026-11-04 (D19). spaCy, NLTK with `punkt_tab`, and rapidfuzz are removed from the V1 plan. numpy and scikit-learn stay as an optional, benchmark-only group. The cleanup was approved as proposed.
+- **Branch:** `phase/p0-clean`, fast-forward merged into `main` (commit message starting `P0-CLEAN:`)
+- **SPEC pointers:** §1 (constraints), §4 (optional components), §13 (dependencies), §15 (behaviour), §16 DoD 11
+- **Done:**
+  - Pre-delete checks: no process was running from the old venv; `models/` had no reparse points; the old venv's `pyvenv.cfg` was present.
+  - A scratch venv under the session scratchpad was built from the base Python 3.12.10 interpreter, in two stages. Stage 1: `requirements.txt` only, which installs 20 packages and no NumPy. Stage 2: plus `requirements-experimental.txt`. The lock was written from stage 2's `pip freeze --exclude pip`.
+  - After those checks passed, the old project venv (`VeritasQA/`, 3.7 GB) and the ignored folders `models/embeddings/`, `models/rerankers/`, `models/.hf-home/` and `models/nltk_data/` were deleted. The project venv was then rebuilt at `E:\Personal\VeritasQA\VeritasQA` from the lock. It now measures 377 MB.
+  - Removed with `git rm`: `app/common/device.py`, `app/common/models.py`, `scripts/download_models.py`, `scripts/validate_gpu.py`, `scripts/validate_models.py`, `tests/conftest.py` (it held only NLTK, CUDA and model logic), the six `test_p0env_*` test files, `requirements-gpu.txt`, `constraints-gpu.txt`, `.env.example`, and the two model manifests.
+  - Changed: `scripts/validate_environment.py` (baseline only); `pyproject.toml` (the `requires_cuda` and `requires_models` markers removed); `requirements.txt` (header); `requirements-experimental.txt` (numpy and scikit-learn only); `requirements-validated.txt` (regenerated, not hand-edited); `.gitignore` (the manifest and `.env.example` re-includes removed, the other guard rules kept); `models/README.md`; `docs/SETUP.md` (rewritten for V1 only); `README.md`; `docs/ARCHITECTURE.md` §1A, §2, §7, §8 and §9.
+  - Added `tests/unit/test_p0_dependencies.py` (9 tests). They check the denied names in every requirement file and in `pyproject.toml`; that the baseline excludes the optional group; that the lock carries every declared pin at the same version; that an AST scan of every module under `app/` finds no denied import, including imports inside functions; that importing every `app` module in a subprocess loads no denied module; and that the scanner itself finds known imports.
+- **Interfaces exposed:** none new. `app.common.errors`, `app.common.files` and `app.storage.fts5` are unchanged.
+- **Exit criteria:** `pytest -q` in the new V1 venv; `pip check`; the lock equals the venv's freeze; `scripts/validate_environment.py` reports baseline valid; the deny-list tests pass.
+- **Result (recorded from runs, 2026-11-04):**
+  - Scratch venv, stage 1 (`requirements.txt` only): `pip check`: No broken requirements found. Baseline suite (`tests/unit/test_p0_foundation.py`): `7 passed in 0.03s`, 0 skipped. The deny-list file was excluded at this stage, because the old lock still existed. `validate_environment.py`: `RESULT: baseline valid`, exit 0.
+  - Scratch venv, stage 2 (plus `requirements-experimental.txt`): `pip check`: No broken requirements found. Full suite: `16 passed in 0.13s`. The lock was written from this freeze, with 27 pins.
+  - Project venv at `E:\Personal\VeritasQA\VeritasQA`, rebuilt from `requirements-validated.txt`: `pip check`: No broken requirements found. Freeze identical to the lock (sorted, comments removed). `pytest -q -rs`: `16 passed in 0.10s`, 0 skipped. `validate_environment.py`: `RESULT: baseline valid`, exit 0.
+  - Suite size: 44 tests before, 16 now. The 37 removed tests covered only the removed device, model, NLP and manifest code. The 9 new tests cover the deny-list rule. The drop is not a regression.
+- **Limitations:**
+  - The git-ignore test for model weights was removed with its manifests. The `.gitignore` rules remain as a guard, but no test checks them now.
+  - The deny-list test cannot see imports built at run time (for example `importlib.import_module` with a computed name). It checks requirement files, `pyproject.toml`, static imports under `app/`, and the modules loaded by importing the package.
+  - The lock is the freeze of one machine (Windows 11, CPython 3.12.10). Another platform needs its own lock.
+  - `pip` is excluded from the lock by design. The shared pip cache (18 GB) and the shared Hugging Face cache (9.7 GB) were not touched (Q7). Ollama was not touched.
+  - Q8 and Q9 are still open, and Q4 (PyMuPDF licence) is still open.
 
 ### P1 — PDF ingestion, extraction and page-level quality validation
 
@@ -424,5 +435,5 @@ No `nvidia-*` package is installed. The CUDA runtime files (cudart, cublas, cudn
 | 8 | Conflicts exposed, not resolved silently | P7 |
 | 9 | Evaluation metrics from manually verified data | blocked (B3); harness P8a |
 | 10 | Regression tests for discovered failures | P8a (framework), grows as failures are found |
-| 11 | Critical functionality runs without a generative LLM, an embedding model or PyTorch (D17) | The retained pipeline needs none of them. Not yet enforced: `app/common/device.py`, `app/common/models.py` and the model tests remain until P0-CLEAN, which adds a deny-list test |
+| 11 | Critical functionality runs without a generative LLM, an embedding model or PyTorch (D17) | Done in P0-CLEAN. `tests/unit/test_p0_dependencies.py` enforces the deny-list in the requirement files and `pyproject.toml`, in the imports under `app/`, and in the modules loaded by importing the package. The project venv holds no PyTorch and no model. |
 | 12 | Documentation explains limitations and reproducible setup | P10 (README), ARCHITECTURE §8–9 |

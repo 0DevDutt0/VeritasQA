@@ -5,14 +5,14 @@ VeritasQA answers questions about a PDF using only text that exists in that PDF.
 
 **No evidence, no answer.** VeritasQA is a deterministic, extractive question-answering system. It has no generative model, no hosted LLM API, no embedding model and no vector database, and V1 uses no PyTorch (D17). Every accepted answer carries an exact quotation with its page and section, and every decision records the checks that produced it.
 
-> **Status:** Phase P0 (foundation) is complete. The environment phase P0-ENV is complete with limitations and is partly superseded by D17. P0-REV, the revision of the architecture, dependency plan and Phase 0 checklist to the deterministic V1, is complete. The cleanup of the historical GPU and model layers (P0-CLEAN) is blocked on the owner's decisions. Ingestion, retrieval, verification and evaluation will be built phase by phase. See [`PROGRESS.md`](PROGRESS.md) for what is done, what is blocked and what is next.
+> **Status:** Phases P0 (foundation) and P0-REV (the deterministic V1 revision) are complete. P0-CLEAN, which removed the historical GPU, model and NLP layers, is complete (2026-11-04). Ingestion (P1) is next, and the other phases follow in order. See [`PROGRESS.md`](PROGRESS.md) for what is done, what is blocked and what is next.
 
 ## Documents
 
 - [`docs/SPEC.md`](docs/SPEC.md): the engineering specification (requirements, hard constraints, phases, definition of done). Its body is verbatim; its header notes the V1 precedence.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): design, the V1 revision (§1A), data contracts, the dependency plan, risks and limitations
 - [`PROGRESS.md`](PROGRESS.md): handoff file with phase status, blockers, decisions, the dependency inventory and the cleanup proposal
-- [`docs/SETUP.md`](docs/SETUP.md): the V1 environment setup, with the historical P0-ENV record
+- [`docs/SETUP.md`](docs/SETUP.md): the V1 environment setup, the lock regeneration procedure and the validation record
 
 ## Quick start
 
@@ -24,7 +24,7 @@ python -m venv .venv
 .venv/Scripts/python.exe -m pytest -q
 ```
 
-The V1 baseline needs no GPU, no PyTorch and no model. The test suite generates its own synthetic PDFs. It does not need the owner's document. The optional TF-IDF and NLP packages, and the historical P0-ENV record, are described in [`docs/SETUP.md`](docs/SETUP.md). V1 does not need them.
+The V1 baseline needs no GPU, no PyTorch and no model. The test suite generates its own synthetic PDFs. It does not need the owner's document. The optional TF-IDF group is described in [`docs/SETUP.md`](docs/SETUP.md). V1 does not need it.
 
 ## Principles
 
