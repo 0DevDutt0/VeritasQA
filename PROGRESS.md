@@ -6,7 +6,7 @@
 
 Say **"continue"**. Then work through the first phase below whose status is `in progress` or `not started`, and follow the per-phase workflow. A phase whose status is `blocked` on an owner decision stops the run: report the open decision and wait. Do not start a later phase.
 
-**Current resume point (2026-11-04, after P2):** P0-REV, P0-CLEAN, P1 and P2 are complete. **P3 is next.** It starts on the next "continue". Q4 (the PyMuPDF licence), Q8, Q9, Q10 and Q11 are still open, and Q9 must be answered before P4 is built. Q3 (install Tesseract) decides whether the OCR path is ever run for real (B2).
+**Current resume point (2026-11-04, after P3):** P0-REV, P0-CLEAN, P1, P2 and P3 are complete. **P4 is next, and it is blocked on Q9** (the owner's own text: "answer this before P4 is built"). On "continue", if Q9 is still open, report it and wait; do not start P4. Q4 (the PyMuPDF licence), Q8, Q9, Q10 and Q11 are still open. Q3 (install Tesseract) decides whether the OCR path is ever run for real (B2).
 
 | Item | Value |
 | --- | --- |
@@ -47,8 +47,8 @@ Say **"continue"**. Then work through the first phase below whose status is `in 
 | P0-CLEAN | Owner-approved cleanup of the GPU, model, NLP and fuzzy-matching layers; V1 venv rebuilt and lock regenerated (D19) | complete | `pytest -q` in a fresh V1 venv, `pip check`, deny-list tests (`tests/unit/test_p0_dependencies.py`) |
 | P1 | PDF ingestion, extraction and page quality | complete on synthetic PDFs; the real-document check is blocked (B1) and the real OCR check is blocked (B2) | `pytest -q tests/unit/test_p1_*.py tests/integration/test_p1_*.py` |
 | P2 | Structure reconstruction, provenance and segmentation | complete-with-limitations (synthetic fixtures and public-corpus property checks pass; structure quality on real documents is unmeasured, B1) | `pytest -q tests/unit/test_p2_*.py tests/integration/test_p2_*.py` |
-| P3 | SQLite schema, FTS5 and exact phrase retrieval | not started | `pytest -q tests/unit/test_p3_*.py tests/integration/test_p3_*.py` |
-| P4 | BM25 retrieval and candidate ranking | not started | `pytest -q tests/unit/test_p4_*.py tests/integration/test_p4_*.py` |
+| P3 | SQLite schema, FTS5 and exact phrase retrieval | complete-with-limitations (synthetic and public-corpus property checks pass; retrieval on real documents is unmeasured, B1) | `pytest -q tests/unit/test_p3_*.py tests/integration/test_p3_*.py` |
+| P4 | BM25 retrieval and candidate ranking | **blocked** (Q9: the owner answers it before P4 is built) | `pytest -q tests/unit/test_p4_*.py tests/integration/test_p4_*.py` |
 | P5 | Question analysis and extractive selection | not started | `pytest -q tests/unit/test_p5_*.py tests/integration/test_p5_*.py` |
 | P6 | Evidence verification and citations | not started | `pytest -q tests/unit/test_p6_*.py tests/integration/test_p6_*.py` |
 | P7 | Conflict detection, decision engine and abstention | not started | `pytest -q tests/unit/test_p7_*.py tests/integration/test_p7_*.py` |
@@ -78,7 +78,7 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
 - **Q6. Closed (2026-11-04, owner).** Remove spaCy, NLTK (with its `punkt_tab` resource) and rapidfuzz from the V1 plan. Keep numpy and scikit-learn as an optional, benchmark-only group outside `requirements.txt` and the acceptance path (D19). P5 is planned as a deterministic, abbreviation-aware splitter. Reintroducing any of these packages needs a new owner decision, and the deny-list test would have to change with it.
 - **Q7. Closed (2026-11-04, owner): approved.** P0-CLEAN ran as proposed, with the Q6 choices above. The shared pip cache (18 GB) and the shared Hugging Face cache (9.7 GB) are not project-owned, and they were not touched.
 - **Q8. SPEC wording.** Keep `docs/SPEC.md` verbatim with the repository precedence note (D18), or re-issue the specification with the V1 revision? Recommendation: keep it verbatim.
-- **Q9. Synonym rules and acceptance.** The default stays conservative. An expansion can widen the candidate set, but it cannot satisfy the entity, value, negation or condition checks, which run on raw text (`docs/ARCHITECTURE.md` §4 and §5). Should reviewed rules ever count toward acceptance? A yes needs a per-rule flag such as `verification_eligible` (default off), a regression set that shows no false acceptances, and a decision recorded here. Recommendation: keep the default off. Answer this before P4 is built.
+- **Q9. Synonym rules and acceptance.** The default stays conservative. An expansion can widen the candidate set, but it cannot satisfy the entity, value, negation or condition checks, which run on raw text (`docs/ARCHITECTURE.md` §4 and §5). Should reviewed rules ever count toward acceptance? A yes needs a per-rule flag such as `verification_eligible` (default off), a regression set that shows no false acceptances, and a decision recorded here. Recommendation: keep the default off. Answer this before P4 is built. **Status: open; P4 is blocked on it (status table).**
 - **Q10. Public QA corpus (D27).** Should the three public PDFs in `data/corpus/public/` be committed, or kept local? The two NIST documents are US federal works. The licence of the arXiv paper (2506.12594) was not checked. Recommendation: keep the PDFs local (D7) and track only the manifest and the README.
 - **Q11. P1 reading-order repair (D31).** Should the repair of P1's column clustering come before P6? P6's context, negation and qualifier checks read `prev_id` and `next_id`, which follow P1's order. Options: (a) repair P1 before P6; (b) accept P1's order for P6 and mark every context-dependent verdict `UNRESOLVED` on a page with `reading_order_uncertain`. Recommendation: (a). It need not block P3 or P4.
 
@@ -117,6 +117,10 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
 | D29 | **Unverified pages get block units only (P2).** A page whose status is not OK or WARNING has no sections, headings or tables. Each of its text blocks becomes one `page_text` unit, with `extraction_quality = unverified`. The page gets a `page_unstructured` issue. | SPEC §1 forbids trusting unverified text, so no structure is inferred from it. |
 | D30 | **Structure thresholds in their own file (P2).** The `[structure]` section is in `config/structure.toml`. `config/default.toml` and the P1 tests are unchanged. Every threshold is a documented, uncalibrated heuristic (D26). Two were set from the corpus: `paragraph_gap_factor = 1.0` and the 0.5 pt size grid. | The P1 loader rejects unknown keys by appending to the file, so a second section there would couple the two configurations. |
 | D31 | **P1 reading order is not repaired in P2.** P1 misplaces some short lines (NIST SP 800-37r1, page 20), and P2 keeps P1's order. Paragraphs that start with a lowercase letter are a proxy for a split paragraph: 151 of 1246 on arXiv (63 pages), 41 of 772 on NIST SP 800-30r1 (23 pages), and 108 of 912 on NIST SP 800-37r1 (25 pages). Those pages stay `warning`, but `warning` also covers pages in order, because `reading_order_uncertain` is set on 87, 94 and 101 pages. The repair is a clustering redesign, so it needs an owner decision (Q11). P6 depends on it. | The advisor asked for a P1 fix only where it distorts P2's input. This one does, but the repair changes P1's clustering contract, so P2 records it rather than patching it. The owner can overrule this. |
+| D32 | **Storage schema revised before P3 code (ARCHITECTURE §6).** The first draft could not hold P2's output. One `location_id` per unit cannot name the spans of a table row; the bounding box is per unit; `table_row` units have no `table_cells` record, so their table fields need columns; sections need `heading_id` and an order; pages need status and hash; structure issues, page and document versions and both configuration hashes need homes. The schema is now built from the P1 and P2 models, with `PRAGMA user_version = 1`. | P2 requires one `source_locations` row per span (§11). A structure read back must equal the one written, so every field needs a column. The contract changed before the code, as the phase workflow requires. |
+| D33 | **Exact phrase check (P3, ARCHITECTURE §12).** FTS5 candidates are checked on the verbatim text of each span: case-insensitive (folded one character at a time, so the length is kept), diacritic-sensitive, whitespace and no-break spaces unified, a match must lie inside one span, and word boundaries apply on both sides, with numeric boundaries (`3.5` does not match `3.5.2`, `13.5` or `3 5`). Pinned limits, each with a test: a CJK phrase inside a run of letters is not found; `İ` is not folded to `i`; a minus sign does not block a number (the P6 value check reads the sign). | On SQLite 3.49.1, FTS5's unicode61 tokenizer ignores punctuation and folds diacritics. A probe matched `3.5` to `3 5` and `3 . 5`, and `cafe` to `café`. Case folding follows FTS5 and what users expect. It is a default that the owner can tighten (for example `US` against `us`) without a schema change. |
+| D34 | **Store writes (P3).** A document is written in one `BEGIN IMMEDIATE` transaction, after its records pass the write rules (hashes, spans, references, table-cell mirror). A rewrite replaces that document's rows, and a failure rolls back to the previous content. Only body-retrieval units enter `evidence_fts`. Derived table rows are indexed and stay marked `derived`. | A failed or inconsistent write must never leave a half-indexed document. Header and footer units are excluded from retrieval by the flag set in P2. |
+| D35 | **Retrieval errors (P3).** `find_phrase` returns `EvidenceUnit`s in `(pdf_page, ordinal)` order, with verbatim spans. A phrase with no letter or digit raises `QueryError`, and an unknown document raises `StorageError`. Neither returns an empty list. | An empty query or a mistyped document ID must not look like "no evidence" (SPEC §9 requires abstentions to be explained). |
 
 ---
 
@@ -374,7 +378,9 @@ No `nvidia-*` package is installed. The CUDA runtime files (cudart, cublas, cudn
 
 ### P3 — SQLite schema, FTS5 and exact phrase retrieval
 
-- **Status:** not started
+- **Status:** complete-with-limitations (2026-11-04). The exact-phrase path is verified on synthetic documents and, as property checks, on the three public documents. Retrieval quality on real documents is unmeasured (B1, B3).
+- **Branch:** `phase/p3-storage-retrieval`, fast-forward merged into `main` (commit message starting `P3:`).
+- **Contracts:** `docs/ARCHITECTURE.md` §6 (revised before the code, D32) and §12.
 - **SPEC pointers:** §3C (storage), §4 (exact phrase, escaping), §12 (escaping and SQL safety), §16 DoD 4
 - **Scope:**
   - `app/storage/schema.py` creates the tables in ARCHITECTURE §6 (`documents`, `pages`, `sections`, `source_locations`, `evidence_units`, `table_cells`, `evidence_fts`, `evaluations`). Checks FTS5 at open (`ensure_fts5_available`).
@@ -385,8 +391,38 @@ No `nvidia-*` package is installed. The CUDA runtime files (cudart, cublas, cudn
 - **Interfaces to expose:** `app.storage.Store` (open, check FTS5, write document, query); `app.retrieval.phrase.find_phrase(store, document_id, phrase) -> list[EvidenceUnit]`.
 - **Test plan:** FTS5-syntax characters (`"`, `*`, `:`, `^`, `-`, `NEAR(`, `AND`, `OR`, parentheses) and SQL-injection strings must be harmless. Phrase vs. adjacency. Unicode queries. Two documents in one database must not leak results across `document_id`.
 - **Exit criteria:** `pytest -q tests/unit/test_p3_*.py tests/integration/test_p3_*.py`
-- **Result:** not run yet
-- **Limitations (expected):** none specific to the baseline.
+- **Done:**
+  - `app/common/errors.py`: `StorageIntegrityError(StorageError)` and `QueryError(VeritasQAError)`.
+  - `app/storage/schema.py` (the §6 DDL, `PRAGMA user_version = 1`, refusal of another version and of a database with foreign tables), `integrity.py` (the write rules), `repository.py` (parameterized reads and writes; FTS rows for body units only), `store.py` (`Store`, the write transaction, `DocumentRecord`), `__init__.py`.
+  - `app/retrieval/query.py` (`build_phrase_query`, `PhraseQuery`, `MATCH_COLUMN`), `phrase.py` (`span_matches`, `fold_case`, `find_phrase`), `__init__.py`.
+  - Tests: `tests/unit/test_p3_schema.py`, `test_p3_repository.py`, `test_p3_query.py`, `test_p3_phrase_check.py`, `test_p3_phrase_search.py`; `tests/integration/test_p3_retrieval.py` (synthetic PDFs through P1, P2 and the store) and `test_p3_corpus.py` (the three public documents in one store, marker `public_corpus`).
+  - Shared helpers: `tests/fixtures/store_records.py` (hand-built P1 and P2 records, labelled synthetic) and `tests/fixtures/store_checks.py` (`brute_force_phrase`, `row_counts`).
+- **Result (recorded from runs, 2026-11-04):**
+  - Exit criteria `pytest -q tests/unit/test_p3_*.py tests/integration/test_p3_*.py`: `233 passed in 64.92s`, with no skips (the public corpus files were present).
+  - Full suite `pytest -q -rs`: `422 passed, 1 skipped in 110.09s`. The skip is `requires_tesseract`, as before. Baseline before P3: `189 passed, 1 skipped`.
+  - `pip check`: No broken requirements found.
+  - First run of the P3 unit tests: 209 passed, 1 failed. The failure was the test's own expected text (`schema version 99`; the message reads `the database schema is version 99`). The test was corrected and the message kept.
+  - Mutation check (scratch probe, not kept as a test): with the exact check disabled, `3.5` also returns `13.5`, `3.55` and `3.5.2`, and `risk assessment` also returns `Risk. assessment`. With the check on, both are excluded, and the phrase-search tests assert those exclusions.
+  - Round trip: `load_structure(write(x)) == x` holds on the synthetic structure, on a second document with identical text, and on the three public documents (95, 95 and 102 pages), which passed the P2 property checks after the store round trip.
+  - Problems found and fixed before this result:
+    1. The first schema draft could not hold P2's output (D32). Found by review against P2's models; ARCHITECTURE §6 was corrected before the code.
+    2. FTS5 over-matches punctuation, spacing and diacritics (probe on SQLite 3.49.1; D33), so the exact check is required.
+    3. Raw user text passed to MATCH is a syntax error (`'); DROP TABLE …` raised `fts5: syntax error`), so every token is quoted and placed behind one column filter (ARCHITECTURE §12).
+    4. The first boundary rule skipped the neighbour check at a punctuation edge, so `-5` would have matched inside `3-5`. Found by review before the tests ran; the rule now checks the neighbouring character whatever the phrase's edge is.
+- **Limitations:**
+  - Retrieval quality on the owner's document is unmeasured (B1, B3). The public corpus gives property checks only; no gold answers exist.
+  - CJK text without spaces forms long token runs. `文字` does not find `文字の認識`, but a phrase equal to a whole run is found (pinned in `test_p3_phrase_check.py`). Substring retrieval for CJK is not planned for V1.
+  - Diacritics are significant in the exact check, so `cafe` does not match `café`. Case is not significant, so `US` matches `us`. P5 and P6 decide entity and value matches.
+  - `İ` is not folded to `i` (pinned). A minus sign does not block a number match: `3.5` matches `-3.5`, and the P6 value check reads the sign.
+  - The FTS index uses the default unicode61 tokenizer. No stemming, synonyms or ranking (P4).
+  - A phrase copied from a table row's generated `index_text`, with its ` | ` or ` = ` glue, is not found, by design.
+  - `created_at` is the only column that differs between runs of the same input.
+- **Handoff to P4:**
+  - `find_phrase` is the exact-match path. P4 adds BM25 ordering as `ORDER BY bm25(evidence_fts, w_index, w_heading)` in a query that also filters `document_id`. The FTS table is shared, so every query must carry that filter. Keep the raw score internal and never show it as a probability.
+  - All documents share one FTS5 table, so BM25 IDF is computed over the whole store, and adding a document changes the scores of the others. P4 must choose per-document or shared statistics, and record the choice against the determinism target (ARCHITECTURE §1A).
+  - FTS hits are never evidence by themselves. P4 candidates are checked in P6 against raw text (ARCHITECTURE §5). Expansion-only matches stay candidates (D17, Q9).
+  - Derived rows (`derived = true`) must never be quoted.
+  - P4 is blocked on Q9.
 
 ### P4 — BM25 retrieval and candidate ranking
 
@@ -498,7 +534,7 @@ No `nvidia-*` package is installed. The CUDA runtime files (cudart, cublas, cudn
 | 1 | 100-page PDF processed and indexed | blocked (B1) |
 | 2 | Extraction issues detected and exposed | P1 complete on synthetic PDFs; the real-document check is blocked (B1) |
 | 3 | Evidence provenance accurate | P2 complete: the provenance invariants hold on the synthetic fixtures and on the three public documents. Accuracy on the owner's document is blocked (B1). |
-| 4 | BM25 and exact phrase retrieval reliable | P3, P4 |
+| 4 | BM25 and exact phrase retrieval reliable | P3 done (exact phrase, complete-with-limitations); BM25 is P4 |
 | 5 | Supported answer types use extractive selection | P5 |
 | 6 | Exact quotations and page citations verifiable | P6 |
 | 7 | Unsupported questions trigger abstention | P7 |

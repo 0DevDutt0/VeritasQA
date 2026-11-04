@@ -42,7 +42,7 @@ The owner's change of plans of 2026-11-04 makes V1 a purely deterministic, LLM-f
 | Structure reconstruction, evidence segmentation | `app/document_structure` | P2 |
 | Shared text normalization (reversible) | `app/common/text.py` | P2 |
 | Storage and FTS5 availability check | `app/storage` | P0 (check), P3 (schema) |
-| Indexing | `app/indexing` | P3 |
+| Indexing (FTS5 population is part of the write path, so there is no separate package) | `app/storage` | P3 |
 | Query processing | `app/question_processing` | P5 |
 | Retrieval (phrase, BM25, expansion) | `app/retrieval` | P3, P4 |
 | Evidence selection | `app/evidence` | P5 |
@@ -112,26 +112,136 @@ These contracts are fixed now so that later phases can rely on them.
 - Conflicts are never resolved silently. Precedence applies only when the document states it explicitly (`SPEC §8`).
 - **Retrieval expansions never count as support.** A synonym or stem match can only add a candidate. The entity, value, negation and condition checks read raw text and must find the question's terms in it. An expansion that does not appear in the raw text leads to abstention, which is the intended conservative outcome. Whether reviewed rules may ever count toward acceptance is an open owner decision (Q9 in `PROGRESS.md`). The default is no.
 
-## 6. Storage schema (planned P3)
+## 6. Storage schema (P3, revised)
+
+P3 implements this schema in `app/storage/schema.py`. It is derived from the P2 models (`EvidenceUnit`, `Section`, `TableCell`, `StructureIssue`, `DocumentStructure`) and the P1 records (`ExtractedDocument`, `ExtractedPage`), so a structure read back from the store equals the one written. `PRAGMA user_version = 1` marks the schema, and `PRAGMA foreign_keys = ON` is set on every connection.
 
 ```
-documents(document_id PK, source_name, sha256, page_count, pipeline_version, created_at)
-pages(document_id, pdf_page, printed_page, width, height, extraction_method,
-      quality_status, warnings_json, raw_text, PK(document_id, pdf_page))
-sections(section_id PK, document_id, level, title, parent_section_id, start_page)
-source_locations(location_id PK, document_id, pdf_page, source_start, source_end,
-                 x0, y0, x1, y1)
-evidence_units(evidence_id PK, document_id, location_id, pdf_page, printed_page,
-               section_id, parent_id, prev_id, next_id, content_type, ordinal,
-               raw_text, index_text, extraction_quality)
-table_cells(evidence_id PK, table_id, row_index, col_index,
-            row_header, col_header, caption)
-evidence_fts USING fts5(index_text, heading_text,
-                        evidence_id UNINDEXED, document_id UNINDEXED)
-evaluations(run_id PK, created_at, split, config_json, metrics_json, dataset_sha256)
+CREATE TABLE documents (
+    document_id TEXT PRIMARY KEY,
+    source_name TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    page_count INTEGER NOT NULL CHECK (page_count >= 1),
+    extractor_version TEXT NOT NULL,
+    structure_version TEXT NOT NULL,
+    pymupdf_version TEXT NOT NULL,
+    pdfplumber_version TEXT NOT NULL,
+    extraction_config_sha256 TEXT NOT NULL,
+    structure_config_sha256 TEXT NOT NULL,
+    issues_json TEXT NOT NULL,      -- document-level extraction issues (code, severity, detail)
+    created_at TEXT NOT NULL        -- UTC, ISO 8601; the only column that differs between runs
+);
+CREATE TABLE pages (
+    document_id TEXT NOT NULL REFERENCES documents(document_id),
+    pdf_page INTEGER NOT NULL CHECK (pdf_page >= 1),
+    printed_page TEXT,
+    width REAL NOT NULL,
+    height REAL NOT NULL,
+    rotation INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    quality_status TEXT NOT NULL,
+    extraction_method TEXT NOT NULL,
+    warnings_json TEXT NOT NULL,    -- the page's issues (code, severity, detail)
+    raw_text TEXT NOT NULL,         -- immutable; every quotation is a slice of it
+    raw_text_sha256 TEXT NOT NULL,
+    PRIMARY KEY (document_id, pdf_page)
+);
+CREATE TABLE sections (
+    section_id TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL REFERENCES documents(document_id),
+    position INTEGER NOT NULL,      -- index in the structure's section list
+    level INTEGER NOT NULL CHECK (level >= 1),
+    title TEXT NOT NULL,
+    parent_section_id TEXT REFERENCES sections(section_id),
+    start_pdf_page INTEGER NOT NULL,
+    heading_id TEXT NOT NULL REFERENCES evidence_units(evidence_id),
+    UNIQUE (document_id, position)
+);
+CREATE TABLE evidence_units (
+    evidence_id TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL REFERENCES documents(document_id),
+    pdf_page INTEGER NOT NULL,
+    printed_page TEXT,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 1),
+    content_type TEXT NOT NULL,
+    raw_text TEXT NOT NULL,
+    index_text TEXT NOT NULL,
+    heading_text TEXT NOT NULL,
+    section_id TEXT REFERENCES sections(section_id),
+    parent_id TEXT REFERENCES evidence_units(evidence_id),
+    prev_id TEXT REFERENCES evidence_units(evidence_id),
+    next_id TEXT REFERENCES evidence_units(evidence_id),
+    extraction_quality TEXT NOT NULL,
+    body_retrieval INTEGER NOT NULL CHECK (body_retrieval IN (0, 1)),
+    derived INTEGER NOT NULL CHECK (derived IN (0, 1)),
+    table_id TEXT,
+    row_index INTEGER,
+    col_index INTEGER,
+    row_header TEXT,
+    col_header TEXT,
+    caption TEXT,
+    x0 REAL NOT NULL, y0 REAL NOT NULL, x1 REAL NOT NULL, y1 REAL NOT NULL,   -- the unit's box
+    UNIQUE (document_id, pdf_page, ordinal),
+    FOREIGN KEY (document_id, pdf_page) REFERENCES pages(document_id, pdf_page)
+);
+CREATE TABLE source_locations (
+    location_id INTEGER PRIMARY KEY,
+    document_id TEXT NOT NULL REFERENCES documents(document_id),
+    evidence_id TEXT NOT NULL REFERENCES evidence_units(evidence_id),
+    span_index INTEGER NOT NULL CHECK (span_index >= 0),
+    pdf_page INTEGER NOT NULL,
+    source_start INTEGER NOT NULL CHECK (source_start >= 0),
+    source_end INTEGER NOT NULL,
+    UNIQUE (evidence_id, span_index),
+    CHECK (source_start < source_end)
+);
+CREATE TABLE table_cells (
+    evidence_id TEXT PRIMARY KEY REFERENCES evidence_units(evidence_id),
+    table_id TEXT NOT NULL,
+    row_index INTEGER NOT NULL CHECK (row_index >= 0),
+    col_index INTEGER NOT NULL CHECK (col_index >= 0),
+    row_header TEXT,
+    col_header TEXT,
+    caption TEXT
+);
+CREATE TABLE structure_issues (
+    issue_id INTEGER PRIMARY KEY,   -- insertion order is the structure's issue order
+    document_id TEXT NOT NULL REFERENCES documents(document_id),
+    pdf_page INTEGER NOT NULL,
+    code TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    FOREIGN KEY (document_id, pdf_page) REFERENCES pages(document_id, pdf_page)
+);
+CREATE VIRTUAL TABLE evidence_fts USING fts5(
+    index_text, heading_text, evidence_id UNINDEXED, document_id UNINDEXED
+);
+CREATE TABLE evaluations (
+    run_id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    split TEXT NOT NULL,
+    config_json TEXT NOT NULL,
+    metrics_json TEXT NOT NULL,
+    dataset_sha256 TEXT NOT NULL
+);
 ```
 
-Every write uses parameterized SQL. The FTS5 table is queried only through bound parameters.
+**Changes from the first draft, and why.**
+- `source_locations` holds one row per span, keyed by `evidence_id` and `span_index`. The first draft's `evidence_units.location_id` could point at one location, but a table row has several spans (§11). The bounding box is per unit (`EvidenceUnit.bbox`), so it sits on `evidence_units`, not on each span.
+- `evidence_units` holds every field of `EvidenceUnit`, including the table fields of `table_row` units. Those rows have no `table_cells` record, so the first draft could not restore them.
+- `sections.position` restores the section order exactly. `heading_id` is P2's pointer to the heading unit.
+- `pages` keeps the page status, the raw-text hash and the page's issues. Page metrics that retrieval does not need (ink ratio, image coverage, column count and similar) stay in `extraction_report.json`, which remains their record.
+- `structure_issues` keeps P2's issues, so a structure read back equals the one written.
+- `table_cells` mirrors the cell units exactly as P2 emits them (§11). P3 checks the mirror before it writes.
+- `documents` records the library versions and the P1 and P2 configuration hashes.
+
+**Write rules.** Checked before the database is touched (`StorageIntegrityError`; nothing is written): every record names the same `document_id`; each page's `raw_text_sha256` matches its text; each unit's spans lie inside its page and reproduce its `raw_text` (`"\n".join(...) == raw_text`); evidence IDs and section IDs are unique; every reference (`section_id`, `parent_id`, `prev_id`, `next_id`, `heading_id`, the parent section) names a record of the same document; each table-cell record matches its unit.
+
+**Transactions.** A document is written in one `BEGIN IMMEDIATE` transaction that includes its `evidence_fts` rows. A rewrite of the same `document_id` replaces the earlier rows and never duplicates FTS rows. Any failure rolls back, so the database keeps the previous content, or nothing for a first write. `PRAGMA defer_foreign_keys = ON` is set inside the transaction, because `prev_id`, `next_id`, `parent_id` and `heading_id` point both forward and backward.
+
+**FTS population.** Only units with `body_retrieval = 1` enter `evidence_fts`. Header and footer units stay in `evidence_units` and never take part in body retrieval. Derived `table_row` units are indexed, because they carry the header-value pairs of a row (§11). Their `index_text` is generated, so P6 must never quote it.
+
+Every write uses parameterized SQL. The FTS5 table is queried only through bound parameters, and every MATCH expression is built by the rules in §12.
 
 ## 7. Dependency plan (D17, after P0-CLEAN)
 
@@ -319,3 +429,36 @@ Implemented in `app/common/text.py` (normalization) and `app/document_structure/
 - Font sizes above body size are not always headings. On the arXiv corpus document, figure labels at 10 to 13 pt qualify as heading levels and push the section headings down to level 5 or 6. The rule is documented and uncalibrated (D26).
 - Pdfplumber boxes that disagree with the text are skipped. On NIST SP 800-37r1, the RMF figure boxes on pages 81 to 85 (eight tables) are skipped for this reason, and their text stays paragraphs.
 - Cover-page title lines in separate blocks become separate headings (NIST SP 800-37r1, page 1).
+
+## 12. Storage, query and exact phrase contracts (P3)
+
+Implemented in `app/storage` (schema, integrity checks, repository, `Store`) and `app/retrieval` (query building and the exact check). Errors: `StorageError`, `StorageIntegrityError` (a subclass) and `QueryError`, all in `app/common/errors.py`.
+
+**Store.** `Store.open(path=":memory:")` runs `ensure_fts5_available()`, enables foreign keys, creates the schema on an empty database, and refuses a database whose `user_version` differs from the schema version. Its methods are `write_document(extracted, structure, *, created_at=None)`, `load_structure(document_id)`, `load_unit(document_id, evidence_id)`, `page_texts(document_id, pdf_pages)`, `document_ids()`, `has_document(document_id)`, `document_record(document_id)` and `match_units(document_id, fts_match)`. Every query takes a `document_id`, so no query crosses documents.
+
+**Round trip.** `load_structure(document_id) == structure` for every structure written. The tests check it on synthetic fixtures and on the public corpus.
+
+**Query building (`app/retrieval/query.py`).**
+1. The phrase is normalized with `normalize_text` (§11).
+2. Tokens are the matches of `[^\W_]+` in the normalized phrase. A phrase with no token raises `QueryError`.
+3. The MATCH expression is `index_text : "tok1 tok2 …"`. The column filter keeps heading text out of the candidate step. Only the tokens appear inside the quotes, so user text never reaches MATCH as syntax. `risk AND assessment`, `NEAR(a b)`, `-risk`, `risk*`, `a:b`, `^x` and `'); DROP TABLE …` are literal words, and the tests check it.
+
+**Candidate step.** FTS5 is a superset filter. It ignores punctuation and spacing, folds case and folds diacritics, so it proposes units that the exact check then rejects. The FTS result is never returned on its own.
+
+**Exact check (`app/retrieval/phrase.py`).** A unit matches when, for at least one of its spans, the normalized span text contains the normalized phrase under these rules:
+- The text is the verbatim source (`pages.raw_text` through `source_spans`), never `index_text`, which carries generated glue in table units.
+- The match lies inside one span, so it cannot cross the newline join of non-adjacent lines.
+- Case is folded one character at a time, so the length is kept. A character whose lower case is more than one character is kept as it is (`'İ'.lower()` has two characters).
+- Diacritics are significant: `cafe` does not match `café`.
+- Word boundaries: the character just before and just after the match must not be a letter, digit, underscore or combining mark, whatever the phrase's own edge characters are. So `3.5` does not match `13.5`, `3.55` or `x3.5`; `-5` does not match `3-5`; `U.S.` does not match `U.S.A`.
+- Numbers: where the phrase starts or ends with a digit, a neighbouring `.` or `,` followed by a digit also rejects the match. So `3.5` does not match `3.5.2` or `1,3.5`, and `5` does not match `3.5`.
+- Spacing and punctuation are significant: `3.5` does not match `3 5` or `3 . 5`; `risk assessment` does not match `risk. assessment`; `ABC 123` does not match `ABC-123`.
+
+**Results.** `find_phrase(store, document_id, phrase) -> list[EvidenceUnit]`, ordered by `(pdf_page, ordinal)`. A unit with `derived = True` is a candidate only. Its spans point at real text, but its `index_text` is generated and must not be quoted (P6). Header and footer units are never returned.
+
+**Known limits (P3).**
+- No stemming, synonyms or ranking. Those belong to P4. The FTS5 index uses the default unicode61 tokenizer.
+- CJK text without spaces forms long token runs. A phrase inside a run is not found (`文字` does not find `文字の認識`), but a phrase equal to a whole run is found. Substring retrieval for CJK needs another tokenizer, which V1 does not plan.
+- Case folding means `US` also finds `us`. P5 and P6 decide entity and value matches. P3 only proposes candidates.
+- A phrase copied from a table row's generated `index_text`, with its ` | ` or ` = ` glue, is not found. This is by design.
+- BM25 statistics are index-wide, because all documents share one FTS table. A second document changes the scores of the first. This is a P4 concern (see the P4 handoff).

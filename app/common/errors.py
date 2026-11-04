@@ -13,3 +13,11 @@ class VeritasQAError(Exception):
 
 class StorageError(VeritasQAError):
     """A persistence or SQLite capability problem, for example a build without FTS5."""
+
+
+class StorageIntegrityError(StorageError):
+    """A record handed to the store is inconsistent: its hashes, spans or references do not hold. Nothing is written."""
+
+
+class QueryError(VeritasQAError):
+    """A query cannot be built from the text given, for example a phrase with no letters or digits."""
