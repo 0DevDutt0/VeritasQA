@@ -267,7 +267,7 @@ def _select_for_component(
     units: Mapping[str, EvidenceUnit],
 ) -> tuple[list[AnswerCandidate], list[DroppedCandidate], _Counts]:
     target_queries = [(term, build_phrase_query(term)) for term in component.target_terms]
-    count_nouns = component.target_terms + component.attribute_terms
+    count_nouns = component.target_terms
     question_type = component.question_type
     candidates: list[AnswerCandidate] = []
     dropped: list[DroppedCandidate] = []
@@ -324,7 +324,8 @@ def _no_candidate_reasons(
         return ("the matching text crosses a join between source spans, so it cannot be quoted verbatim",)
     expected = _EXPECTED_REASON.get(component.question_type)
     if expected is not None and counts.with_expected == 0:
-        return (f"no sentence with every target term also has {expected}",)
+        unit_word = "passage" if component.question_type == QuestionType.CONDITIONS else "sentence"
+        return (f"no {unit_word} with every target term also has {expected}",)
     return ()
 
 

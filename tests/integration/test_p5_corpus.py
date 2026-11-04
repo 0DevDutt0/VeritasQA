@@ -1,12 +1,14 @@
 """P5 on the public QA corpus (data/corpus/public): provenance and invariant checks on real text (SPEC §6, §12).
 
-No expected answer is written here. Each question is generated from a sentence of a public document: a "what"
-question from three of its content words, and a "how many" question from a sentence that holds a number with a
-time unit. Some checks are gated: provenance, the derived-row rule, the answer-inside-quote rule, the replacement
-character flag and determinism. Other counts are only reported (run with ``-s``), and they are not a measurement
-on the owner's document (B1, B3).
+No expected answer is written here. Each question is generated from a sentence of a public document, and the
+sentence is the expected source. The generators cover each supported question type that real sentences can
+produce: `what`, `how many`, `when`, `whether`, `conditions` and `which`. A sample also includes units that contain
+the replacement character, so that the flag is checked on real text (D55).
 
-Run: pytest tests/integration/test_p5_corpus.py -q -s
+The gated checks run on every generated question: provenance against the stored page text, no derived row quoted,
+each answer span inside its quote, the replacement-character flag matching the text, and determinism. The counts
+are reported with `-s`. Each count is a property check on real text, not a measurement on the owner's document
+(B1, B3). A source sentence that comes back is built in: its own words were used to ask the question.
 """
 
 from __future__ import annotations
@@ -21,8 +23,9 @@ import pytest
 from app.document_structure import build_structure
 from app.document_structure.models import ContentType
 from app.evidence import ComponentStatus, select_candidates
+from app.evidence.markers import find_markers
 from app.evidence.segment import _ABBREVIATIONS, _OPENERS, sentence_spans
-from app.evidence.values import find_values
+from app.evidence.values import ValueKind, find_values
 from app.ingestion.extract import extract_document
 from app.question_processing import analyze
 from app.question_processing.vocabulary import ATTRIBUTE_WORDS, FUNCTION_WORDS, QUESTION_WORDS
@@ -34,7 +37,8 @@ CORPUS_DIR = REPO_ROOT / "data" / "corpus" / "public"
 DOCUMENTS = json.loads((CORPUS_DIR / "manifest.json").read_text(encoding="utf-8"))["documents"]
 CREATED = "2026-01-01T00:00:00Z"
 SAMPLE_PER_DOCUMENT = 40
-TIME_UNITS = ("days", "years", "months", "weeks", "hours")
+CAP_PER_TYPE = 20
+CAP_REPLACEMENT = 10
 REPLACEMENT = "�"
 ALLOWED_DROPS = {"derived_row", "crosses_source_span"}
 _QUANTITY = re.compile(r"\b\d+(?:[.,]\d+)?\s*(%|percent\b|days\b|years\b|months\b|weeks\b|hours\b)")
@@ -95,8 +99,14 @@ def _content_words(sentence: str, limit: int) -> list[str]:
     return words
 
 
+def _sentences(structure):
+    for unit in _body_units(structure):
+        for start, end in sentence_spans(unit.raw_text):
+            yield unit, unit.raw_text[start:end]
+
+
 def _generate(structure):
-    """Deterministic questions built from sentences of the document. The sentence is the expected source."""
+    """Deterministic questions built from sentences of the document. Each entry is (kind, question, sentence, unit)."""
     questions = []
     for unit in _evenly(_body_units(structure), SAMPLE_PER_DOCUMENT):
         sentences = [unit.raw_text[start:end] for start, end in sentence_spans(unit.raw_text)]
@@ -105,21 +115,39 @@ def _generate(structure):
             if len(words) == 3:
                 questions.append(("what", f"What is {' '.join(words)}?", sentence, unit.evidence_id))
                 break
-    # The public text has very few time-unit numbers, so quantities are searched in every body unit, up to a cap.
-    quantities = 0
-    for unit in _body_units(structure):
-        for start, end in sentence_spans(unit.raw_text):
-            sentence = unit.raw_text[start:end]
-            match = _QUANTITY.search(sentence)
+
+    counts: Counter = Counter()
+    for unit, sentence in _sentences(structure):
+        quantity = _QUANTITY.search(sentence)
+        words = _content_words(sentence, 2)
+        if quantity is None or len(words) < 2 or counts["how_many"] >= CAP_PER_TYPE:
+            continue
+        unit_word = "percent" if quantity.group(1) in ("%", "percent") else quantity.group(1)
+        questions.append(("how_many", f"How many {unit_word} apply to {' '.join(words)}?", sentence, unit.evidence_id))
+        counts["how_many"] += 1
+
+    generators = (
+        ("when", lambda s: any(v.kind in (ValueKind.DATE, ValueKind.PERIOD) for v in find_values(s)), "When is {} {}?"),
+        ("whether", lambda s: bool(find_markers(s, "permission")), "Is it permitted to {} {}?"),
+        ("conditions", lambda s: bool(find_markers(s, "condition")), "Under what conditions is {} {}?"),
+        ("which", lambda s: bool(find_markers(s, "list")), "Which {} {} apply?"),
+    )
+    for kind, applies, template in generators:
+        for unit, sentence in _sentences(structure):
             words = _content_words(sentence, 2)
-            if match is None or len(words) < 2:
+            if len(words) < 2 or not applies(sentence) or counts[kind] >= CAP_PER_TYPE:
                 continue
-            unit_word = "percent" if match.group(1) in ("%", "percent") else match.group(1)
-            questions.append(("how_many", f"How many {unit_word} apply to {' '.join(words)}?", sentence, unit.evidence_id))
-            quantities += 1
-            break
-        if quantities >= SAMPLE_PER_DOCUMENT:
-            break
+            questions.append((kind, template.format(*words), sentence, unit.evidence_id))
+            counts[kind] += 1
+
+    # Units with the replacement character, so the flag is checked on real text (D55).
+    replacement = 0
+    for unit, sentence in _sentences(structure):
+        words = _content_words(sentence, 3)
+        if REPLACEMENT not in sentence or len(words) < 3 or replacement >= CAP_REPLACEMENT:
+            continue
+        questions.append(("replacement", f"What is {' '.join(words)}?", sentence, unit.evidence_id))
+        replacement += 1
     return questions
 
 
@@ -130,7 +158,7 @@ def _run(store, document_id, question):
     units = {}
     for candidate in result.candidates:
         units[candidate.evidence_id] = store.load_unit(document_id, candidate.evidence_id)
-    return select_candidates(analysis, {component.component_id: result}, units).components[0], result
+    return select_candidates(analysis, {component.component_id: result}, units).components[0]
 
 
 def test_the_public_corpus_gives_only_verbatim_quotes_with_their_flags(corpus):
@@ -139,8 +167,8 @@ def test_the_public_corpus_gives_only_verbatim_quotes_with_their_flags(corpus):
     for name, (document_id, structure, pages) in documents.items():
         questions = _generate(structure)
         assert questions, f"{name}: no questions could be generated"
-        for kind, question, source_sentence, source_unit in questions:
-            component, result = _run(store, document_id, question)
+        for kind, question, source_sentence, _source_unit in questions:
+            component = _run(store, document_id, question)
             report[f"{kind}.questions"] += 1
             report[f"{kind}.status.{component.status.value}"] += 1
             for candidate in component.candidates:
@@ -148,22 +176,23 @@ def test_the_public_corpus_gives_only_verbatim_quotes_with_their_flags(corpus):
                 assert pages[candidate.pdf_page][candidate.page_start : candidate.page_end] == candidate.quote
                 # Gate 2: a generated table row is never quoted (D48).
                 assert candidate.retrieval.derived is False
-                # Gate 3: an answer span is inside its own quote.
+                # Gate 3: an answer span is inside its own quote, and it is the page text at its offsets.
                 if candidate.answer_span is not None:
                     assert candidate.answer_span in candidate.quote
                     assert pages[candidate.pdf_page][candidate.answer_page_start : candidate.answer_page_end] == candidate.answer_span
+                    report[f"{kind}.answer_span"] += 1
                 # Gate 4: a replacement character is flagged, and a flag is never set without it.
                 assert ("replacement_character" in candidate.flags) == (REPLACEMENT in candidate.quote)
+                if REPLACEMENT in candidate.quote:
+                    report["replacement.quotes_with_the_character"] += 1
                 for flag in candidate.flags:
                     report[f"flag.{flag}"] += 1
                 report[f"rule.{candidate.rule_id}"] += 1
             for dropped in component.dropped:
                 assert dropped.reason in ALLOWED_DROPS
                 report[f"dropped.{dropped.reason}"] += 1
-            if kind == "what" and any(c.quote == source_sentence for c in component.candidates):
-                report["what.source_sentence_returned"] += 1
-            if kind == "how_many" and component.candidates:
-                report["how_many.with_answer_span"] += sum(c.answer_span is not None for c in component.candidates) > 0
+            if any(source_sentence in candidate.quote for candidate in component.candidates):
+                report[f"{kind}.source_sentence_returned"] += 1
             if component.reasons:
                 report[f"reason.{component.reasons[0]}"] += 1
     print()
@@ -175,10 +204,8 @@ def test_the_public_corpus_gives_only_verbatim_quotes_with_their_flags(corpus):
 def test_selection_on_the_public_corpus_is_deterministic(corpus):
     store, documents = corpus
     for _, (document_id, structure, _pages) in documents.items():
-        for kind, question, _sentence, _unit in _generate(structure)[:10]:
-            first, _ = _run(store, document_id, question)
-            second, _ = _run(store, document_id, question)
-            assert first == second
+        for _kind, question, _sentence, _unit in _generate(structure)[:10]:
+            assert _run(store, document_id, question) == _run(store, document_id, question)
 
 
 def test_the_abbreviation_rule_fires_as_reported_and_no_split_is_a_sentence_break(corpus):

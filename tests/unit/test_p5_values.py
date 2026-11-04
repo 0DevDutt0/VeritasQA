@@ -186,3 +186,37 @@ def test_the_same_text_gives_the_same_values_in_the_same_order():
 
 def test_an_empty_text_has_no_values():
     assert find_values("") == ()
+
+
+@pytest.mark.parametrize(
+    "text, count_nouns",
+    [
+        ("See Section 3 for the rule.", ["rule"]),
+        ("Table 2 members are listed.", ["members"]),
+        ("Go to page 5 of the guide.", ["guide"]),
+        ("Step 3 days are allowed.", ["days"]),
+    ],
+)
+def test_a_number_after_a_label_word_is_an_identifier_and_not_a_value(text, count_nouns):
+    assert [value.text for value in find_values(text, count_nouns=count_nouns)] == []
+
+
+def test_a_section_number_before_a_capitalised_count_noun_is_not_a_count_value():
+    values = find_values("3.2 Risk board assessments", count_nouns=["risk"])
+    assert [(value.text, value.unit) for value in values] == [("3.2", None)]
+
+
+def test_a_lower_case_count_noun_after_a_number_is_the_unit():
+    value = _one("The board has 9 members.", count_nouns=["members"])
+    assert (value.text, value.unit) == ("9 members", "members")
+
+
+def test_a_capitalised_count_noun_is_not_a_count_value_even_when_the_number_is_not_dotted():
+    # No dotted number and no line start here, so only the capital letter keeps `Members` from counting.
+    values = find_values("Quota: 9 Members assigned.", count_nouns=["members"])
+    assert [(value.text, value.unit) for value in values] == [("9", None)]
+
+
+def test_a_number_that_opens_a_line_is_not_read_as_a_count_value():
+    values = find_values("Board\n9 members attend.", count_nouns=["members"])
+    assert [(value.text, value.unit) for value in values] == [("9", None)]

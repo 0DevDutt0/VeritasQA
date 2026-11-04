@@ -121,6 +121,36 @@ def _bounds_ok(text: str, start: int, end: int) -> bool:
     return True
 
 
+# Words that label a number, as in "Section 3" or "Table 2". A number after one of them is an identifier (D59).
+_LABEL_WORDS = frozenset(
+    """section sections table tables figure figures fig figs step steps page pages item items clause clauses annex
+    appendix chapter part row rows column columns note notes question questions point points article articles
+    paragraph paragraphs equation equations eq eqs reference references ref refs footnote footnotes no nos number
+    numbers""".split()
+)
+_PREVIOUS_WORD = re.compile(r"([A-Za-z]+)\.?\s*$")
+
+
+def _follows_label(text: str, start: int) -> bool:
+    """True when the word before the number is a label such as ``Section`` or ``Table`` (D59)."""
+    match = _PREVIOUS_WORD.search(text[max(0, start - 30) : start])
+    return match is not None and match.group(1).lower() in _LABEL_WORDS
+
+
+def _is_count_use(text: str, start: int, end: int, word: str) -> bool:
+    """A count noun counts a number only when the number reads as a quantity (D59).
+
+    The noun must be lower case as written, so a capitalised heading word such as ``Risk`` does not count. A dotted
+    number such as ``3.2`` is a section number, and a number that opens a line or the text is a list or heading
+    number. A number that is not a count value is still a bare value.
+    """
+    if not word.islower():
+        return False
+    if "." in text[start:end]:
+        return False
+    return start > 0 and text[start - 1] != "\n"
+
+
 def _overlaps(taken: list[tuple[int, int]], start: int, end: int) -> bool:
     return any(start < other_end and other_start < end for other_start, other_end in taken)
 
@@ -188,7 +218,7 @@ def find_values(text: str, *, count_nouns: Iterable[str] = ()) -> tuple[Value, .
     forms = _count_noun_forms(count_nouns)
     for match in _NUMBER_RE.finditer(text):
         start, end = match.span()
-        if _overlaps(taken, start, end) or not _bounds_ok(text, start, end):
+        if _overlaps(taken, start, end) or not _bounds_ok(text, start, end) or _follows_label(text, start):
             continue
         negative = start > 0 and text[start - 1] in "-−" and not (start > 1 and text[start - 2].isalnum())
         value_start = start - 1 if negative else start
@@ -200,7 +230,11 @@ def find_values(text: str, *, count_nouns: Iterable[str] = ()) -> tuple[Value, .
             value_end = unit_match.end()
         else:
             word_match = _WORD_AFTER_RE.match(text, end)
-            if word_match is not None and word_match.group("word").lower() in forms:
+            if (
+                word_match is not None
+                and word_match.group("word").lower() in forms
+                and _is_count_use(text, start, end, word_match.group("word"))
+            ):
                 unit = forms[word_match.group("word").lower()]
                 value_end = word_match.end()
         if _overlaps(taken, value_start, value_end):
