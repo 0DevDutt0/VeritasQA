@@ -90,6 +90,7 @@ Run only this check with `VeritasQA\Scripts\python.exe -m pytest -q tests\unit\t
 | Baseline and optional group, scratch venv | `pip install -r requirements-experimental.txt`; `pip check`; `pytest -q` | No broken requirements. `16 passed`. |
 | Project venv rebuilt from the lock | `pip install -r requirements-validated.txt`; `pip check`; `pytest -q -rs`; freeze compared with the lock | No broken requirements. `16 passed`, 0 skipped. Freeze identical to the lock. |
 | Baseline validator | `scripts\validate_environment.py` | `RESULT: baseline valid`, exit 0 |
+| Fresh clone of `origin/main` (commit `6fa490a`), section 3 run as written, with the base Python 3.12.10 interpreter in place of `py -3.12` | Baseline only: `pip install -r requirements.txt`, `pip check`, `pytest -q -rs`, `scripts\validate_environment.py`. Then `pip install -r requirements-validated.txt` in the same venv, `pip check`, freeze compared with the lock, `pytest -q -rs`, `scripts\validate_environment.py` | Baseline only: no broken requirements; `16 passed`, 0 skipped; `RESULT: baseline valid`. Lock: no broken requirements; freeze identical to the lock; `16 passed`, 0 skipped; `RESULT: baseline valid`. The clone stayed clean. |
 
 The project venv measures 377 MB on disk, against 3.7 GB before the cleanup.
 
