@@ -1,0 +1,7 @@
+# Store text with LF line endings in the repository and check it out with LF on every platform,
+# so the repository does not depend on each developer's core.autocrlf setting.
+* text=auto eol=lf
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary

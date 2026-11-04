@@ -81,7 +81,7 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
 | D5 | Evidence IDs are deterministic: `{document_id}:p{page}:u{ordinal}`. | Stable citations and reproducible evaluation. |
 | D6 | No placeholder modules. Each package appears in the phase that first needs it. | `SPEC §15`. |
 | D7 | Source PDFs (`*.pdf`) are never committed. Generated extraction and index data are not committed. | Confidentiality and reproducibility. |
-| D8 | UTF-8 everywhere through `app/common/files.py`. LF newlines on output. | Windows defaults to cp1252. |
+| D8 | UTF-8 everywhere through `app/common/files.py`. LF newlines on output, enforced in the repository by `.gitattributes` (`* text=auto eol=lf`). | Windows defaults to cp1252 and to CRLF with `core.autocrlf`. |
 | D9 | No CI workflow yet. | Not requested. Can be added later as a separate phase task. |
 | D10 | Dependencies are pinned in `requirements.txt` and validated in a clean venv. | Reproducibility (`SPEC §13`). |
 
