@@ -1,0 +1,29 @@
+# Synthetic rules for the P4 tests only. They are not reviewed and they are never shipped in config/.
+rules_version = 1
+
+[[rule]]
+id = "test-fee-charge"
+version = 1
+query_terms = ["fee"]
+alternatives = ["charge", "charges"]
+positive_examples = [{ query = "fee", text = "The charge applies to each visit." }]
+counter_examples = [{ query = "fee", text = "The discharge applies to each visit." }, { query = "fee", text = "The fees are listed." }]
+reviewer_note = "Synthetic test rule. Not reviewed. Not for use outside the P4 tests."
+
+[[rule]]
+id = "test-risk-review"
+version = 2
+query_terms = ["risk assessment"]
+alternatives = ["hazard review"]
+positive_examples = [{ query = "risk assessment", text = "The hazard review is complete." }]
+counter_examples = [{ query = "risk assessment", text = "The hazard. review is split here." }]
+reviewer_note = "Synthetic test rule. Not reviewed. Not for use outside the P4 tests."
+
+[[rule]]
+id = "test-run-forms"
+version = 1
+query_terms = ["run"]
+alternatives = ["running", "runs"]
+positive_examples = [{ query = "run", text = "The team is running the test." }]
+counter_examples = [{ query = "run", text = "The rerun is scheduled." }]
+reviewer_note = "Synthetic test rule. Not reviewed. Not for use outside the P4 tests."

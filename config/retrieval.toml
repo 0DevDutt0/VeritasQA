@@ -1,0 +1,16 @@
+# VeritasQA retrieval configuration (read by app/retrieval/config.py; unknown keys are rejected).
+#
+# Every value below is an uncalibrated default. None is an acceptance threshold. The P9a sweep varies
+# K, the context window and the heading weight on the development split only (SPEC §9, §11).
+
+[retrieval]
+# Candidate depth: the number of original-word candidates returned, after duplicate removal.
+k = 50
+# Expansion-only candidates (reached only through a reviewed rule) follow the original candidates and
+# never take their places. At most this many are returned. Zero returns none (ARCHITECTURE §13).
+expansion_k = 10
+# bm25() column weights. A match in the heading text counts for more than one in the body text.
+weight_index = 1.0
+weight_heading = 2.0
+# Body units before and after each candidate, attached as context only, never as candidates.
+context_window = 1

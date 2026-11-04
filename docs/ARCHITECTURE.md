@@ -488,9 +488,9 @@ Implemented in `app/retrieval` (`bm25.py`, `terms.py`, `rules.py`, `config.py`, 
 
 **Ranking.** `bm25(document_bm25, weight_index, weight_heading)`, sorted by the raw value ascending and then by `evidence_id`. A candidate's rank is its position in the result. The raw value is kept as `bm25_raw` for audit only. It is never a probability (SPEC §9).
 
-**Expansion (one-way, recall only).** `expand_words` finds each rule's query terms as contiguous runs of folded query words. Each match adds the rule's alternatives. An alternative is quoted as an FTS5 phrase, so the words of a multi-word alternative must be adjacent. Every applied alternative is recorded in `trace.applied_rules` with the query term, the rule ID, the rule version and the alternative. The trace also holds the rule-set fingerprint, a SHA-256 of the canonical rule list. A unit that a rule reaches and no original query word reaches has `via = "expansion"` and `expansion_only = True`. Its `rule_ids` lists the rules whose alternatives reached it.
+**Expansion (one-way, recall only).** `expand_words` finds each rule's query terms as contiguous runs of folded query words. Each match adds the rule's alternatives. An alternative is quoted as an FTS5 phrase, so the words of a multi-word alternative must be adjacent. Every applied alternative is recorded in `trace.applied_rules` with the query term, the rule ID, the rule version and the alternative. The trace also holds the rule-set fingerprint, `trace.rules_fingerprint`, a SHA-256 of the canonical rule list. A unit that a rule reaches and no original query word reaches has `via = "expansion"` and `expansion_only = True`. Its `rule_ids` lists the rules whose alternatives reached it.
 
-**Slots (D41).** The original-word hits come first. After duplicate removal, the first `k` of them are returned. Expansion-only hits follow, and at most `expansion_k` of them are returned. An expansion never takes an original hit's place. A unit that an original word reaches always has `via = "original"`.
+**Slots (D41).** The original-word hits come first. After duplicate removal, the first `k` of them are returned. Expansion-only hits follow, and at most `expansion_k` of them are returned. The trace counts what was cut, in `truncated_original` and `truncated_expansion`. An expansion never takes an original hit's place. A unit that an original word reaches always has `via = "original"`.
 
 **Duplicates.** The key is the SHA-256 of `normalize_text(raw_text)`. Hits are read in rank order. The first hit with a key is kept. Each later hit with the same key is removed from the candidates and listed in the kept candidate's `duplicate_evidence_ids`. Removal happens before the `k` cut, and the removed copies are counted in `trace.duplicates_removed`. Nothing is dropped without a record.
 
@@ -505,7 +505,7 @@ Context is never a candidate, never replaces one and is never quoted on its own.
 **Exact terms (D43).** `terms.extract_terms` finds numbers (`3.5`), percentages (`10%`), dates (`2024-01-01`, `4 March 2024`, `March 4, 2024`) and identifiers (`ABC-123`) in the query. Each candidate lists the query terms whose exact phrase is found in its raw text, using the P3 exact check (`exact_terms`). This is information for P6. It does not change the ranking. BM25 still matches `3.5` inside `3.5.2`, so a candidate without an exact term is a candidate, not a match.
 
 **Store read methods (P4).** Each one takes a `document_id`, and each one scopes its SQL to it.
-- `Store.document_bm25_index(document_id)`: a context manager that yields a `DocumentBm25Index`. It has `rank(fts_match, weights)`, which returns `(evidence_id, bm25_raw)` pairs in rank order, and `indexed_ids()`.
+- `Store.document_bm25_index(document_id)`: a context manager that yields a `DocumentBm25Index`. It has `rank(fts_match, weights)`, which returns `(evidence_id, bm25_raw)` pairs in rank order, `indexed_ids()` and `row_count`.
 - `Store.unit_summaries(document_id, evidence_ids)`: the rank-independent fields of each unit.
 - `Store.body_neighbours(document_id, pdf_page, ordinal, window)`: the body units before and after a position.
 - `Store.section_headings(document_id, section_id)`: the heading unit IDs of a section and of its parent.
@@ -521,3 +521,4 @@ Context is never a candidate, never replaces one and is never quoted on its own.
 - Stop words are not removed, so a long question returns many candidates, and `k` cuts them.
 - Statistics are per document, so scores from two documents must not be compared.
 - On a very small document, a term that occurs in more than half of its units has an IDF that FTS5 clamps to 1e-6, so many scores tie. The tiebreak is `evidence_id`.
+- Recall is measured, not gated (D44). On the public corpus, 179 of 180 sampled windows return their own unit within K = 50, and 174 of 180 within K = 10. The one miss is a window of common words against a long unit, and it is recorded in `PROGRESS.md` (P4).

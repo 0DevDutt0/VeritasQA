@@ -1,0 +1,19 @@
+# VeritasQA controlled synonym and stemming rules (read by app/retrieval/rules.py; unknown keys are rejected).
+#
+# Recall only. A rule adds candidates and never counts as support. The owner decided this on 2026-11-04
+# (PROGRESS.md, D38). No rule has been reviewed yet, so this file holds none (D43).
+#
+# Each [[rule]] table needs:
+#   id                 lowercase letters, digits and hyphens, unique across the file
+#   version            an integer, raised whenever the rule changes
+#   query_terms        the words a user may type (at least one)
+#   alternatives       the words that are searched for as well (at least one)
+#   positive_examples  at least one { query, text } table: the text must contain an alternative
+#   counter_examples  at least one { query, text } table: the text must contain no alternative
+#   reviewer_note      who reviewed the rule, when, and what was decided
+#
+# Matching is one-way: a query term adds its alternatives, and an alternative never adds the query term.
+# Stemming rules list the inflected forms explicitly, because no stemmer runs. Each rule is checked against
+# its own examples when this file is loaded (ARCHITECTURE §13).
+
+rules_version = 1

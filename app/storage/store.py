@@ -21,9 +21,10 @@ from pydantic import BaseModel
 from app.common.errors import StorageError
 from app.document_structure.models import DocumentStructure, EvidenceUnit
 from app.ingestion.models import ExtractedDocument
-from app.storage import repository
+from app.storage import repository, retrieval_reads
 from app.storage.fts5 import ensure_fts5_available
 from app.storage.integrity import check_for_write
+from app.storage.retrieval_reads import DocumentBm25Index, UnitSummary
 from app.storage.schema import ensure_schema
 
 
@@ -181,3 +182,32 @@ class Store:
         candidate step only; the exact check belongs to :mod:`app.retrieval.phrase`.
         """
         return repository.read_units(self._conn, document_id, fts_match=fts_match)
+
+    # ------------------------------------------------------------ retrieval reads (P4, ARCHITECTURE §13)
+
+    @contextmanager
+    def document_bm25_index(self, document_id: str) -> Iterator[DocumentBm25Index]:
+        """Open the BM25 index of one document for the duration of the ``with`` block.
+
+        The index holds that document's body units only, so its statistics are per document (D39).
+        It is dropped when the block ends, including when it ends with an error.
+        """
+        if not self.has_document(document_id):
+            raise StorageError(f"the store holds no document {document_id}")
+        row_count = retrieval_reads.open_document_index(self._conn, document_id)
+        try:
+            yield DocumentBm25Index(self._conn, row_count)
+        finally:
+            retrieval_reads.close_document_index(self._conn)
+
+    def unit_summaries(self, document_id: str, evidence_ids: Iterable[str]) -> dict[str, UnitSummary]:
+        """The retrieval fields of the named units of one document. Unknown IDs are left out."""
+        return retrieval_reads.read_unit_summaries(self._conn, document_id, evidence_ids)
+
+    def body_neighbours(self, document_id: str, pdf_page: int, ordinal: int, window: int) -> tuple[list[str], list[str]]:
+        """Up to ``window`` body units before and after a position, as evidence IDs in reading order."""
+        return retrieval_reads.read_body_neighbours(self._conn, document_id, pdf_page, ordinal, window)
+
+    def section_headings(self, document_id: str, section_id: str | None) -> tuple[str | None, str | None]:
+        """The heading unit IDs of a section and of its parent section."""
+        return retrieval_reads.read_section_headings(self._conn, document_id, section_id)
