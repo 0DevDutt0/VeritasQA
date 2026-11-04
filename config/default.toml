@@ -1,0 +1,62 @@
+# VeritasQA configuration (read by app/ingestion/config.py; unknown keys are rejected).
+#
+# Every threshold below is a documented heuristic for flagging pages. None of them is an
+# acceptance threshold, and none is calibrated on a real document (blocker B1). Calibration
+# belongs to P9b and uses the development split only (SPEC §9, §11).
+
+[ingestion]
+# Largest accepted file, in bytes (256 MiB).
+max_file_bytes = 268435456
+# Bytes read from the end of the file when looking for the %%EOF marker.
+eof_tail_bytes = 2048
+
+# Blank pages: a page with no text is BLANK when its low-DPI render has no more than
+# this fraction of non-white pixels.
+blank_check_dpi = 36
+blank_ink_ratio_max = 0.0005
+
+# A page whose images cover at least this fraction of the page area is image-dominated.
+scanned_image_coverage_min = 0.5
+
+# Invisible text (text render mode 3 or 7). A text page whose invisible characters make up more
+# than this fraction of its text characters is SUSPICIOUS, because a reader cannot see the text
+# that carries it. Any invisible text at all keeps the page below OK (D20).
+hidden_text_share_max = 0.02
+
+# Garbled text: replacement (U+FFFD), control and private-use characters, as a fraction of
+# the non-space characters. Private-use code points also come from symbol-font bullets, so
+# this limit is deliberately loose.
+garbled_char_ratio_max = 0.05
+
+# Suspicious text: too few letters among the non-space characters, or too many single-letter
+# tokens (broken character spacing). Each check runs only above its minimum size.
+suspicious_min_non_space_chars = 50
+suspicious_letter_ratio_min = 0.4
+suspicious_min_tokens = 20
+suspicious_single_letter_token_ratio_max = 0.3
+
+# Header and footer detection: a block in the top or bottom band that repeats on at least
+# max(header_footer_min_pages, ceil(pages / 2)) pages is a header or a footer.
+header_footer_band_fraction = 0.08
+header_footer_min_pages = 2
+
+# Reading order. A block at least this fraction as wide as the widest body text is a
+# full-width separator. The gap between columns must be at least min_gutter_fraction of
+# that widest extent, or the order is flagged uncertain. Two text blocks overlapping by more
+# than overlap_area_fraction_max of the smaller one are flagged uncertain.
+wide_block_width_fraction = 0.6
+min_gutter_fraction = 0.02
+overlap_area_fraction_max = 0.1
+
+# Spans are split into separate lines when the horizontal gap between them exceeds this many
+# font sizes, so table cells that share a baseline stay on separate lines.
+line_gap_em = 1.0
+
+# Renders of non-OK pages, written for inspection only.
+render_dpi = 150
+
+# OCR. "auto" runs tesseract when it is on PATH. "off" never runs it.
+ocr_mode = "auto"
+ocr_language = "eng"
+ocr_dpi = 300
+ocr_timeout_seconds = 120

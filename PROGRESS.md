@@ -6,7 +6,7 @@
 
 Say **"continue"**. Then work through the first phase below whose status is `in progress` or `not started`, and follow the per-phase workflow. A phase whose status is `blocked` on an owner decision stops the run: report the open decision and wait. Do not start a later phase.
 
-**Current resume point (2026-11-04, after P0-CLEAN):** P0-REV and P0-CLEAN are complete, and the owner decided Q6 and Q7 (D19). **P1 is next.** It starts on the next "continue". Q8 and Q9 are still open, and Q9 must be answered before P4 is built. Q4 (the PyMuPDF licence) is still open.
+**Current resume point (2026-11-04, after P1):** P0-REV, P0-CLEAN and P1 are complete. **P2 is next.** It starts on the next "continue". Q4 (the PyMuPDF licence), Q8 and Q9 are still open, and Q9 must be answered before P4 is built. Q3 (install Tesseract) decides whether the OCR path is ever run for real (B2).
 
 | Item | Value |
 | --- | --- |
@@ -45,7 +45,7 @@ Say **"continue"**. Then work through the first phase below whose status is `in 
 | P0-ENV | Environment bootstrap: CUDA torch, optional packages, pinned model artifacts (inserted before P1; see D11) | complete-with-limitations; **superseded by D17**; artifacts removed by P0-CLEAN | historical (its validation scripts were removed in P0-CLEAN) |
 | P0-REV | V1 revision: deterministic, LLM-free and embedding-free architecture, dependency plan and Phase 0 checklist (D17) | complete | `pytest -q` (full suite), `scripts/validate_environment.py` |
 | P0-CLEAN | Owner-approved cleanup of the GPU, model, NLP and fuzzy-matching layers; V1 venv rebuilt and lock regenerated (D19) | complete | `pytest -q` in a fresh V1 venv, `pip check`, deny-list tests (`tests/unit/test_p0_dependencies.py`) |
-| P1 | PDF ingestion, extraction and page quality | not started (next; Q6 and Q7 are decided) | `pytest -q tests/unit/test_p1_*.py tests/integration/test_p1_*.py` |
+| P1 | PDF ingestion, extraction and page quality | complete on synthetic PDFs; the real-document check is blocked (B1) and the real OCR check is blocked (B2) | `pytest -q tests/unit/test_p1_*.py tests/integration/test_p1_*.py` |
 | P2 | Structure reconstruction, provenance and segmentation | not started | `pytest -q tests/unit/test_p2_*.py tests/integration/test_p2_*.py` |
 | P3 | SQLite schema, FTS5 and exact phrase retrieval | not started | `pytest -q tests/unit/test_p3_*.py tests/integration/test_p3_*.py` |
 | P4 | BM25 retrieval and candidate ranking | not started | `pytest -q tests/unit/test_p4_*.py tests/integration/test_p4_*.py` |
@@ -103,6 +103,13 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
 | D17 | **V1 is deterministic, LLM-free and embedding-free** (owner's change of plans, 2026-11-04). Removed from the V1 dependency and model-download plan: sentence-transformers, embedding models, dense retrieval, cross-encoder rerankers, PyTorch and CUDA, vector databases and generative LLMs. TF-IDF is kept only as an optional, benchmark-only baseline. It is sparse lexical weighting, never an embedding. Controlled synonym and stemming rules are added to P4 as recall-only, versioned and logged. Nothing is uninstalled or deleted until the owner approves the cleanup (Q7). | The owner's directive asks for maximum factual precision, minimum incorrect accepted answers and a light installation. CUDA is not required by the retrieval and verification pipeline. |
 | D18 | `docs/SPEC.md` keeps its verbatim body. Where SPEC §4 (optional embeddings and cross-encoder reranking) or SPEC §13 (spaCy and NLTK) differ from D17, D17 governs V1. A repository note in the SPEC header points to this decision. | The SPEC is the owner's text. A change of plan is recorded in the repository, not by rewriting the owner's prompt. Q8 asks the owner to confirm this. |
 | D19 | **Owner decisions, 2026-11-04.** Q6: spaCy 3.8.18, NLTK 3.10.4 (with the `punkt_tab` resource) and rapidfuzz 3.14.6 are removed from the V1 plan. numpy and scikit-learn stay as an optional, benchmark-only group outside `requirements.txt` and the acceptance path. Q7: the P0-CLEAN cleanup is approved and was carried out as proposed. | The owner's answers. They are recorded here so that later sessions do not reopen them. `tests/unit/test_p0_dependencies.py` enforces the removals. |
+| D20 | **Hidden text layers (P1).** Invisible text (text render mode 3 or 7) is read from `page.get_texttrace()`, because `get_text("dict")` does not expose the mode (probed on PyMuPDF 1.26.6). An image-dominated page whose text has unknown origin is `SCANNED_TEXT_LAYER` (unverified), whether or not its text is invisible. A page whose only text is invisible is `SUSPICIOUS`. A page whose invisible share of its text characters exceeds `hidden_text_share_max` (2%, uncalibrated) is `SUSPICIOUS` (`hidden_text_share_high`). Any smaller invisible share keeps the page below `OK` (WARNING). Each line records its invisible character count (`hidden_chars`), and P2 must not ground an answer on a line whose count is above zero. | A scanned PDF can carry an invisible OCR layer that reads like native text, and an invisible paragraph can sit beside one visible line. SPEC §1 forbids trusting unverified text. An advisor review found the gap: a page with an invisible paragraph and one visible line was a WARNING before this rule. |
+| D21 | **Repairs and truncation (P1).** A repaired document, or one without `%%EOF` in its last 2048 bytes, is recorded at document level. Each of its pages is stamped with the same WARNING, so no page of a repaired file can be `OK`. The file is kept, not rejected. | MuPDF repairs broken files silently. Per-page gates must see the problem, and a repaired file can still hold most of the document. |
+| D22 | **Reading unit and raw text (P1).** Text lines are the ordering unit. A span starts a new line when its horizontal gap to the previous span is more than `line_gap_em` font sizes, in either direction. Consecutive lines that share a PyMuPDF block, a column and a band form one block. The native PDF order is never used. | PyMuPDF put the lines of two columns on one baseline in one block (seen on a synthetic page). Ordering whole PyMuPDF blocks then mixed the columns. |
+| D23 | **Encryption (P1).** A file that needs a password is rejected (`encrypted_requires_password`). A file that opens without one is read, including one with an owner-only restriction on printing. | The owner's document may be restricted yet readable. Decryption is out of scope. |
+| D24 | **OCR (P1).** Tesseract runs only on `SCANNED` pages, in `ocr_mode = "auto"` and only when the binary is on PATH. It is called through an argument list with no shell. Its text is `OCR_TEXT` and unverified. The tests use a stub that checks the argument list. The real binary is not installed (B2). | SPEC §3A allows an OCR fallback. Its output is not trusted (SPEC §1). |
+| D25 | **Tables (P1).** Table detection uses only pdfplumber's `lines` strategy. A ruled table makes its page a WARNING, and its cell text is read in column order until P2 rebuilds the rows. Borderless tables are not detected. | On a synthetic two-column page, the `text` strategy reported a false table. A borderless table is a known gap. |
+| D26 | **Classification thresholds (P1).** Every threshold in `config/default.toml` is a documented heuristic for flagging a page. None is an acceptance threshold, and none is calibrated on a real document (B1). P9b calibrates them on the development split only. | SPEC §9 forbids arbitrary thresholds. The values are config, recorded, and reviewed later. |
 
 ---
 
@@ -237,7 +244,7 @@ No `nvidia-*` package is installed. The CUDA runtime files (cudart, cublas, cudn
   - [ ] Q8 decided by the owner (SPEC wording).
   - [ ] Q9 decided by the owner (synonym rules and acceptance; must precede P4).
   - [x] P0-CLEAN executed after approval (2026-11-04).
-  - [ ] P1 not started. It is the next phase.
+  - [x] P1 complete (2026-11-04), verified on synthetic PDFs. The real-document check is blocked (B1).
 - **Limitations:**
   - The historical code is still present and still imports torch lazily (`app/common/device.py`, `app/common/models.py`). The project venv still holds torch and both models. "V1 imports no torch" was the target until P0-CLEAN, which met it on 2026-11-04.
   - SPEC §4 and §13 still describe the superseded options. D18 governs V1 until the owner decides Q8.
@@ -273,7 +280,9 @@ No `nvidia-*` package is installed. The CUDA runtime files (cudart, cublas, cudn
 
 ### P1 — PDF ingestion, extraction and page-level quality validation
 
-- **Status:** not started
+- **Status:** complete on synthetic PDFs (2026-11-04). The real-document check is blocked (B1). The real Tesseract check is blocked (B2).
+- **Branch:** `phase/p1-ingestion`, fast-forward merged into `main` (commit message starting `P1:`)
+- **Contracts:** `docs/ARCHITECTURE.md` §10 (written before the code, as the workflow requires).
 - **SPEC pointers:** §3A (ingestion and extraction), §12 (integrity, reading order, multi-column, OCR source handling), §16 DoD 2
 - **Scope:**
   - **Validation:** the file exists and is non-empty, is under a configured size limit, starts with `%PDF-`, opens with PyMuPDF, is not encrypted (or fails with an explicit error), has at least one page, and yields a SHA-256 for the `document_id` (D5/§3 of ARCHITECTURE).
@@ -287,8 +296,37 @@ No `nvidia-*` package is installed. The CUDA runtime files (cudart, cublas, cudn
 - **Interfaces to expose:** `app.ingestion.validate_pdf(path) -> PdfFileInfo`; `app.ingestion.extract_document(path) -> ExtractedDocument`; `app.ingestion.classify_page(...)`; `app.ingestion.render_page_png(path, pdf_page, dpi, out_path)`; `app.ingestion.ocr.tesseract_available()`, `app.ingestion.ocr.ocr_page(...)`; `config/default.toml` `[ingestion]` section.
 - **Test plan:** synthetic PDFs generated by the tests with PyMuPDF (labelled synthetic). Cover: invalid and truncated files, encrypted files, blank page, image-only page, garbled text, a two-column layout (reading order), repeated headers and footers, printed page labels, a page with a ruled table, Unicode text (non-ASCII round-trip). OCR: a stubbed-binary test always runs; a real-binary test is marked `requires_tesseract`.
 - **Exit criteria:** `pytest -q tests/unit/test_p1_*.py tests/integration/test_p1_*.py`
-- **Result:** not run yet
-- **Limitations (expected):** heuristic reading order; OCR unverified on this machine (B2); no real document (B1).
+- **Done:**
+  - `config/default.toml` (`[ingestion]`), loaded by `app/ingestion/config.py` with Pydantic and `extra="forbid"`. Each threshold is documented.
+  - `app/ingestion/validate.py`: file checks, the SHA-256 and `document_id`. `app/ingestion/layout.py`: reading order and repeated headers and footers (pure). `app/ingestion/quality.py`: page classification (pure). `app/ingestion/extract.py`: scans every page, orders the lines, classifies, runs OCR when available. `app/ingestion/render.py`: PNG renders and the ink measure. `app/ingestion/ocr.py`: the tesseract adapter (argument list, no shell). `app/ingestion/report.py`: writes the report, the page texts and the renders.
+  - Tests: `tests/unit/test_p1_*.py` and `tests/integration/test_p1_*.py`. Every PDF is generated at test time (`tests/fixtures/synthetic_pdfs.py`, labelled synthetic). The OCR stub is `tests/fixtures/fake_tesseract.py`.
+- **Interfaces exposed:** `app.ingestion.validate_pdf(path, config) -> PdfFileInfo`; `app.ingestion.extract_document(path, *, config=None, out_root=None, ocr_command=None) -> ExtractedDocument`; `app.ingestion.render_page_png(path, pdf_page, dpi, out_path)`; `app.ingestion.ocr_page(...)` and `app.ingestion.tesseract_available()`; `app.ingestion.load_ingestion_config(path=None)`. `classify_page` lives in `app.ingestion.quality`.
+- **Outputs (per document, under `out_root/<document_id>/`):** `extraction_report.json`, `pages/pNNNN.txt` (the immutable raw text of each page), `renders/pNNNN.png` (non-OK pages only).
+- **Result (recorded from runs, 2026-11-04):**
+  - Project venv, exit criteria `pytest -q tests/unit/test_p1_*.py tests/integration/test_p1_*.py`: `122 passed, 1 skipped in 8.32s`. The skip is `requires_tesseract` (tesseract is not on PATH).
+  - Project venv, full suite `pytest -q`: `138 passed, 1 skipped in 8.59s`. `pip check`: No broken requirements found.
+  - Fresh venv built from `requirements.txt` only (in the session scratchpad, CPython 3.12.10): `pip check` clean; the freeze is the 20-package baseline with no NumPy; `scripts/validate_environment.py`: `RESULT: baseline valid`.
+  - Fresh clone of `phase/p1-ingestion` (it held only committed files, and its status was clean), run with the `requirements.txt`-only venv: exit criteria `122 passed, 1 skipped in 8.53s`; full suite `138 passed, 1 skipped in 8.78s`; `scripts/validate_environment.py`: `RESULT: baseline valid`.
+  - Timing on a synthetic 100-page two-column document: 4.0 s, including the report. All 100 pages were `OK`.
+  - Problems the tests found and that were fixed before this result: PyMuPDF placed two columns in one block (D22); the built-in Helvetica font substitutes `—` and `€` (so the Unicode fixture uses the embedded `china-s` font); `china-s` drops some Latin letters on insertion (so the fixture uses only letters it keeps). The last two were fixture errors, not extractor errors. Their evidence is in the glyph trace. An advisor review found that a page with an invisible paragraph and one visible line was a WARNING, which could ground an answer. It is now SUSPICIOUS (D20), and the test `test_no_page_with_invisible_text_is_ever_verified` covers every fixture with invisible text.
+- **Limitations:**
+  - No real document (B1). Every threshold is uncalibrated, and the precision of no flag has been measured. The synthetic results describe the pipeline, not the owner's document.
+  - Real tesseract was not run (B2). The OCR path is tested with a stub that checks the argument list, the failure exit and the empty-output case.
+  - Reading order is a heuristic, tested on synthetic layouts only. Ruled-table cells are read in column order, and borderless tables are not detected (`lines` strategy only, D25).
+  - Invisible-text detection depends on PyMuPDF's render-mode trace. A visible text layer over an image is also `SCANNED_TEXT_LAYER` (unverified), which is conservative and may cost coverage.
+  - The garbled and private-use checks are not calibrated. Symbol-font bullets may count as private-use characters, so the limit is loose.
+  - Image coverage sums the image areas and caps the sum at 1. Overlapping images can therefore over-count.
+  - OCR text has page-level coordinates only. Rotated pages are flagged, and their coordinates are not normalized.
+  - A repaired or truncated document makes every page a WARNING (D21), so none of its pages can be `OK` until the owner decides otherwise.
+  - Text that is invisible by colour (for example white text, render mode 0) is not detected. Only render modes 3 and 7 are.
+  - Footnotes are not identified in P1. SPEC §3A lists them, and the plan gives them to P2. DoD 2 therefore does not yet cover them.
+  - Header and footer roles come from a text key with digits collapsed. A numeric row that repeats at a page edge can be tagged as a header. The role is a flag, and P2 must not delete the unit.
+  - Q4 (the PyMuPDF licence) is still open. This phase uses the library as pinned.
+- **Handoff to P2:**
+  - Load a written report with `app.ingestion.load_outputs(report_path)`, which checks each page-text file against `raw_text_sha256`. The JSON alone does not validate, because it omits `raw_text`.
+  - A line with `hidden_chars > 0` is unverified (D20). Only `OK` pages are `verified`. A `WARNING` page carries `warning` quality, and every other status is `unverified`.
+  - `block_no` is the PyMuPDF block a line came from. One PyMuPDF block can yield several blocks, so use `reading_index` and `raw_start`/`raw_end` for identity.
+  - Table cells are read in column order (D25). P2 rebuilds the rows from the pdfplumber cells.
 
 ### P2 — Structure reconstruction, provenance and evidence segmentation
 
@@ -427,7 +465,7 @@ No `nvidia-*` package is installed. The CUDA runtime files (cudart, cublas, cudn
 | # | Item | State |
 | --- | --- | --- |
 | 1 | 100-page PDF processed and indexed | blocked (B1) |
-| 2 | Extraction issues detected and exposed | P1 |
+| 2 | Extraction issues detected and exposed | P1 complete on synthetic PDFs; the real-document check is blocked (B1) |
 | 3 | Evidence provenance accurate | P2 |
 | 4 | BM25 and exact phrase retrieval reliable | P3, P4 |
 | 5 | Supported answer types use extractive selection | P5 |

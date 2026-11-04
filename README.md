@@ -5,7 +5,7 @@ VeritasQA answers questions about a PDF using only text that exists in that PDF.
 
 **No evidence, no answer.** VeritasQA is a deterministic, extractive question-answering system. It has no generative model, no hosted LLM API, no embedding model and no vector database, and V1 uses no PyTorch (D17). Every accepted answer carries an exact quotation with its page and section, and every decision records the checks that produced it.
 
-> **Status:** Phases P0 (foundation) and P0-REV (the deterministic V1 revision) are complete. P0-CLEAN, which removed the historical GPU, model and NLP layers, is complete (2026-11-04). Ingestion (P1) is next, and the other phases follow in order. See [`PROGRESS.md`](PROGRESS.md) for what is done, what is blocked and what is next.
+> **Status:** Phases P0 (foundation) and P0-REV (the deterministic V1 revision) are complete. P0-CLEAN, which removed the historical GPU, model and NLP layers, is complete (2026-11-04). Ingestion (P1) is complete on synthetic PDFs, and the real-document check is blocked until the owner's PDF is supplied. P2 is next, and the other phases follow in order. See [`PROGRESS.md`](PROGRESS.md) for what is done, what is blocked and what is next.
 
 ## Documents
 

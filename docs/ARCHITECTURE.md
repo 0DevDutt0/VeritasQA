@@ -83,8 +83,8 @@ These contracts are fixed now so that later phases can rely on them.
 
 **Extraction quality states.**
 
-- Page status: `OK`, `WARNING`, `SCANNED` (image-only; needs OCR), `OCR_TEXT` (text produced by OCR), `BLANK`, `GARBLED`, `SUSPICIOUS`.
-- Evidence `quality_status`: `verified`, `warning`, `unverified`. OCR text and garbled or suspicious pages are `unverified` and can never support an ANSWERED decision on their own (`SPEC §1`, `§9 SOURCE_UNVERIFIED`).
+- Page status: `OK`, `WARNING`, `SCANNED` (image-only; needs OCR), `SCANNED_TEXT_LAYER` (image-dominated page whose text has an unknown origin; P1), `OCR_TEXT` (text produced by OCR), `BLANK`, `GARBLED`, `SUSPICIOUS`. The mapping to quality is in §10.
+- Evidence `quality_status`: `verified`, `warning`, `unverified`. OCR text, text layers of unknown origin, and garbled or suspicious pages are `unverified` and can never support an ANSWERED decision on their own (`SPEC §1`, `§9 SOURCE_UNVERIFIED`).
 - `extraction_method`: `native_text`, `ocr_tesseract`, `none`.
 
 **Decision statuses (`SPEC §9`).** `ANSWERED`, `INSUFFICIENT_EVIDENCE`, `AMBIGUOUS_QUERY`, `CONFLICT`, `SOURCE_UNVERIFIED`, `PARTIAL`. Retrieval scores, verification results and decision reasons are kept in separate response sections (`SPEC §10`).
@@ -197,3 +197,61 @@ python -m venv .venv
 ```
 
 The optional TF-IDF group is described in [`docs/SETUP.md`](SETUP.md). Only the baseline is part of V1 (D17). The project venv used during development lives at `VeritasQA/` in the repository root. It is git-ignored and is not part of the project. The lock `requirements-validated.txt` records the whole project venv, and [`docs/SETUP.md`](SETUP.md) §4 gives the procedure for regenerating it. The baseline pins were validated in a clean venv (see `PROGRESS.md`, P0, P0-REV and P0-CLEAN).
+
+## 10. Ingestion contracts (P1)
+
+Implemented in `app/ingestion`. Configuration is `config/default.toml`, section `[ingestion]`. `app/ingestion/config.py` loads it with Pydantic and rejects unknown keys. The thresholds are documented heuristics, not acceptance thresholds, and they are uncalibrated on a real document (B1).
+
+**Entry points.** `validate_pdf(path, config) -> PdfFileInfo`. `extract_document(path, *, config=None, out_root=None, ocr_command=None) -> ExtractedDocument`. When `out_root` is given, the outputs are written under `out_root/<document_id>/`. Without it, nothing is written.
+
+**Validation (`PdfRejectedError.code`).** `file_missing`, `file_empty`, `file_too_large` (`max_file_bytes`), `bad_header` (the first five bytes are not `%PDF-`), `cannot_open` (PyMuPDF refuses the file), `encrypted_requires_password` (`needs_pass` is true), `no_pages`. A file that opens without a password is accepted, even when its owner password restricts printing.
+
+**Repairs and truncation.** MuPDF repairs broken files silently. The extractor reads `is_repaired` and the MuPDF message buffer (reset before the open, read after the page loop). A repaired document, or one with no `%%EOF` in its last `eof_tail_bytes` bytes, is recorded at document level and stamped as a WARNING on every page (`pdf_repaired`, `pdf_missing_eof`).
+
+**Outputs.**
+
+```
+<out_root>/<document_id>/extraction_report.json   per-document report, without raw text
+<out_root>/<document_id>/pages/p0001.txt          raw_text of each page: UTF-8, LF, no added newline
+<out_root>/<document_id>/renders/p0001.png        renders of non-OK pages (inspection only)
+```
+
+The report has no timestamps and no absolute paths. The same bytes and configuration give a byte-identical report. `config_sha256` identifies the configuration used.
+
+**Page record.** `pdf_page` (1-based), `printed_page` (the PDF label, or `null`), `width`, `height`, `rotation`, `status`, `quality_status`, `extraction_method` (`native_text`, `ocr_tesseract` or `none`), `visible_chars`, `hidden_chars`, `non_space_chars`, `image_coverage` (0 to 1), `ink_ratio` (only when measured), `table_count`, `column_count`, `reading_order` (`none`, `single_column` or `multi_column`), `reading_order_uncertain`, `issues`, `blocks`, `raw_text_path`, `raw_text_sha256` and `render_path`.
+
+**Block record.** `block_no` (the PyMuPDF block that the lines came from; `-1` for OCR text), `role` (`body`, `header`, `footer`, `image` or `ocr`), `bbox`, `reading_index` and `column_index` (text roles only), `raw_start` and `raw_end` (half-open offsets into `raw_text`; `null` for images), and `lines`. A line has `bbox`, `raw_start`, `raw_end`, `text`, `spans` and `hidden_chars`. A span has `text`, `bbox`, `font`, `size`, `flags` and `bold` (`flags & 16`).
+
+**Raw text assembly.** Header blocks come first, then body blocks in reading order, then footer blocks. The lines of a block are joined with `\n`, and blocks are joined with `\n\n`. A line is a run of spans in which each neighbour lies within `line_gap_em` font sizes, in either direction. Cells of a ruled table that share a baseline therefore sit on separate lines (for example, `3.5` on its own line). Lines, not PyMuPDF blocks, are the unit of ordering, because PyMuPDF can place the lines of two columns on one baseline inside one block. Consecutive lines that share a PyMuPDF block, a column and a band form one block. PyMuPDF's native order is never used as the reading order.
+
+**Reading order.** A text line whose width is at least `wide_block_width_fraction` of the widest body-text extent is a full-width separator. The narrow lines between separators form a band. Within a band, lines are clustered into columns by horizontal overlap, read left to right and then top to bottom within each column. The page is flagged `reading_order_uncertain` for `overlapping_text` (two lines overlap by more than `overlap_area_fraction_max` of the smaller one), `narrow_gutter` (a column gap below `min_gutter_fraction` of the widest extent), or `wide_block_overlap` (a narrow line shares vertical extent with a full-width line). Ruled-table cells are read column by column, so a page with a table is a WARNING (`table_detected`), and P2 rebuilds the rows from the cells.
+
+**Header and footer.** A line whose text, with digits replaced by `#`, appears in the top or the bottom `header_footer_band_fraction` of at least `max(2, ceil(pages / 2))` pages gets role `header` or `footer`. Its lines are excluded from the column clustering. They stay in `raw_text`, first for headers and last for footers.
+
+**Hidden text layers.** `dict` spans do not expose the text render mode, so the extractor reads `page.get_texttrace()`. Characters whose `type` is 3 or 7 are invisible. Every page with invisible text stays below `OK`:
+- an image-dominated page with any text is `SCANNED_TEXT_LAYER` (reason `hidden_text_layer` when some text is invisible);
+- a page whose only text is invisible is `SUSPICIOUS` (`hidden_text_only`);
+- a page whose invisible share of its text characters exceeds `hidden_text_share_max` (default 2%) is `SUSPICIOUS` (`hidden_text_share_high`);
+- a smaller invisible share is `WARNING` (`hidden_text_present`);
+- when the trace cannot be read, the page is `WARNING` (`text_render_mode_unknown`).
+
+Each line records `hidden_chars`, the number of invisible glyphs whose centre lies in that line. P2 must treat a line with `hidden_chars > 0` as unverified and must not ground an answer on it (D20). Text that is invisible by colour (for example white text, render mode 0) is not detected by this trace.
+
+**Page status and quality.**
+
+| Status | Meaning | `quality_status` |
+| --- | --- | --- |
+| `OK` | Text passes every check | `verified` |
+| `WARNING` | Usable but flagged: table, uncertain reading order, rotated page, invisible text beside visible text, repaired or truncated document, table check failure | `warning` |
+| `SCANNED` | No text, image-dominated; OCR not run or produced no text | `unverified` |
+| `OCR_TEXT` | Text produced by Tesseract | `unverified` |
+| `SCANNED_TEXT_LAYER` | Image-dominated page with text of unknown origin | `unverified` |
+| `BLANK` | No text and almost no ink at `blank_check_dpi` | `unverified` (no evidence) |
+| `GARBLED` | Replacement, control or private-use characters above `garbled_char_ratio_max` | `unverified` |
+| `SUSPICIOUS` | Letter ratio or single-letter token ratio unusual; text without visible glyphs; invisible share above `hidden_text_share_max`; or content without text | `unverified` |
+
+Decision order: OCR text; then the no-text rules (image coverage, then ink); then the text rules (image coverage, invisible-only text, garbled, suspicious, warning, OK). Each non-OK status carries at least one issue that gives its reason.
+
+**OCR.** Runs only when `ocr_mode = "auto"` and `tesseract` is on PATH, or when a command is passed explicitly (tests). It is an argument list with no shell. The language is validated against `^[A-Za-z0-9_+]+$`. Failure or empty output keeps the page `SCANNED` with `ocr_failed` or `ocr_no_text`. When OCR cannot run, the reason is `ocr_unavailable` (no binary) or `ocr_disabled` (mode `off`). OCR text has page-level coordinates only.
+
+**Issue vocabulary.** An issue has a `code`, a `severity` (`info` or `warning`) and a `detail` that states the measured values. Only `warning` severity can change a page status. The codes are listed in `app/ingestion/models.py`.
