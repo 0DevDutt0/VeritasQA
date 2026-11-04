@@ -7,6 +7,8 @@ matches. The rules are documented in ARCHITECTURE §12 and tested in ``tests/uni
 
 from __future__ import annotations
 
+import functools
+import sqlite3
 import unicodedata
 
 from app.common.errors import StorageError
@@ -15,16 +17,62 @@ from app.document_structure.models import EvidenceUnit
 from app.retrieval.query import PhraseQuery, build_phrase_query
 from app.storage.store import Store
 
+# Planes 0 and 1, where every cased letter of the Unicode versions in use lies.
+_CALIBRATION_LIMIT = 0x20000
+
+
+def _index_equates(connection: sqlite3.Connection, stored: str, query: str) -> bool:
+    """True when a one-character query finds the one-character text ``stored`` in the calibration table."""
+    connection.execute("DELETE FROM calibration")
+    connection.execute("INSERT INTO calibration(text) VALUES (?)", (stored,))
+    expression = 'text : "' + query.replace('"', '""') + '"'
+    try:
+        hits = connection.execute("SELECT COUNT(*) FROM calibration WHERE calibration MATCH ?", (expression,)).fetchone()[0]
+    except sqlite3.Error:
+        return False
+    return hits > 0
+
+
+@functools.lru_cache(maxsize=1)
+def index_foldable_characters() -> frozenset[str]:
+    """The characters whose lower case the FTS5 index folds to the same token, measured on this SQLite build.
+
+    Python's ``lower()`` and SQLite's unicode61 case folding do not agree for every script. This build does not
+    fold Cherokee or Georgian Mtavruli, for example. The exact check folds a character only when it is in this
+    set, so it accepts a case pair only where the candidate step can return it. The measurement runs once per
+    process, on a private in-memory database, so it follows the SQLite build actually in use.
+    """
+    pairs: list[tuple[str, str]] = []
+    for codepoint in range(_CALIBRATION_LIMIT):
+        if 0xD800 <= codepoint <= 0xDFFF:
+            continue
+        character = chr(codepoint)
+        lower = character.lower()
+        if len(lower) == 1 and lower != character:
+            pairs.append((character, lower))
+    connection = sqlite3.connect(":memory:")
+    try:
+        connection.execute("CREATE VIRTUAL TABLE calibration USING fts5(text)")
+        foldable: set[str] = set()
+        for character, lower in pairs:
+            if _index_equates(connection, lower, character) and _index_equates(connection, character, lower):
+                foldable.add(character)
+        return frozenset(foldable)
+    finally:
+        connection.close()
+
 
 def fold_case(text: str) -> str:
-    """Lower-case one character at a time. The length never changes, so positions stay comparable.
+    """Lower-case one character at a time, and only where the index folds it too (see
+    :func:`index_foldable_characters`). The length never changes, so positions stay comparable.
 
     A character whose lower case is more than one character (``'İ'``) is kept as it is.
     """
+    foldable = index_foldable_characters()
     folded: list[str] = []
     for character in text:
         lower = character.lower()
-        folded.append(lower if len(lower) == 1 else character)
+        folded.append(lower if len(lower) == 1 and character in foldable else character)
     return "".join(folded)
 
 

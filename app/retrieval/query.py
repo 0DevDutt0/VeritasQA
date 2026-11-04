@@ -44,6 +44,10 @@ def build_phrase_query(phrase: str) -> PhraseQuery:
     """
     if not isinstance(phrase, str):
         raise QueryError(f"a phrase must be text, not {type(phrase).__name__}")
+    try:
+        phrase.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise QueryError(f"the phrase is not valid Unicode text ({exc.reason})") from exc
     if any(unicodedata.category(character) == "Cc" and not character.isspace() for character in phrase):
         raise QueryError(f"the phrase {phrase!r} contains a control character")
     mapping = normalize_with_map(phrase)

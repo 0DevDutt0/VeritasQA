@@ -104,3 +104,9 @@ def test_a_phrase_without_letters_or_digits_is_refused(phrase):
 def test_a_phrase_that_is_not_text_is_refused(value):
     with pytest.raises(QueryError, match="must be text"):
         build_phrase_query(value)
+
+
+@pytest.mark.parametrize("phrase", ["risk\ud800", "\udfffrisk", "ri\ud83dsk"])
+def test_a_lone_surrogate_is_refused_as_a_query_error_not_a_raw_error(phrase):
+    with pytest.raises(QueryError, match="not valid Unicode"):
+        build_phrase_query(phrase)
