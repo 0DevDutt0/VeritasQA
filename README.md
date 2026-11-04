@@ -3,16 +3,16 @@ Evidence-First Document Intelligence
 
 VeritasQA answers questions about a PDF using only text that exists in that PDF. When the evidence does not support an answer, it abstains and says why.
 
-**No evidence, no answer.** VeritasQA is an extractive, auditable question-answering system. It has no generative model, no hosted LLM API and no vector database. Every accepted answer carries an exact quotation with its page and section, and every decision records the checks that produced it.
+**No evidence, no answer.** VeritasQA is a deterministic, extractive question-answering system. It has no generative model, no hosted LLM API, no embedding model and no vector database, and V1 uses no PyTorch (D17). Every accepted answer carries an exact quotation with its page and section, and every decision records the checks that produced it.
 
-> **Status:** Phase P0 (foundation) and the environment phase P0-ENV (CUDA, optional packages and pinned model artifacts) are complete, with limitations. Ingestion, retrieval, verification and evaluation are being built phase by phase. See [`PROGRESS.md`](PROGRESS.md) for what is done, what is blocked and what is next.
+> **Status:** Phase P0 (foundation) is complete. The environment phase P0-ENV is complete with limitations and is partly superseded by D17. P0-REV, the revision of the architecture, dependency plan and Phase 0 checklist to the deterministic V1, is complete. The cleanup of the historical GPU and model layers (P0-CLEAN) is blocked on the owner's decisions. Ingestion, retrieval, verification and evaluation will be built phase by phase. See [`PROGRESS.md`](PROGRESS.md) for what is done, what is blocked and what is next.
 
 ## Documents
 
-- [`docs/SPEC.md`](docs/SPEC.md): the engineering specification (requirements, hard constraints, phases, definition of done)
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): design, data contracts, dependency rationale, risks and limitations
-- [`PROGRESS.md`](PROGRESS.md): handoff file with phase status, blockers, decisions and exit criteria
-- [`docs/SETUP.md`](docs/SETUP.md): environment setup, the optional GPU and experimental groups, model artifacts and validation
+- [`docs/SPEC.md`](docs/SPEC.md): the engineering specification (requirements, hard constraints, phases, definition of done). Its body is verbatim; its header notes the V1 precedence.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): design, the V1 revision (§1A), data contracts, the dependency plan, risks and limitations
+- [`PROGRESS.md`](PROGRESS.md): handoff file with phase status, blockers, decisions, the dependency inventory and the cleanup proposal
+- [`docs/SETUP.md`](docs/SETUP.md): the V1 environment setup, with the historical P0-ENV record
 
 ## Quick start
 
@@ -24,7 +24,7 @@ python -m venv .venv
 .venv/Scripts/python.exe -m pytest -q
 ```
 
-The baseline needs no GPU, no PyTorch and no model. The test suite generates its own synthetic PDFs. It does not need the owner's document. The optional CUDA and NLP groups are described in [`docs/SETUP.md`](docs/SETUP.md).
+The V1 baseline needs no GPU, no PyTorch and no model. The test suite generates its own synthetic PDFs. It does not need the owner's document. The optional TF-IDF and NLP packages, and the historical P0-ENV record, are described in [`docs/SETUP.md`](docs/SETUP.md). V1 does not need them.
 
 ## Principles
 
@@ -38,6 +38,7 @@ The baseline needs no GPU, no PyTorch and no model. The test suite generates its
 
 - The owner's ~100-page PDF is not yet included, so no result on the real document exists yet.
 - Tesseract OCR is optional and is not installed on the development machine.
+- Retrieval is lexical. Synonyms are limited to reviewed rules, and paraphrases are missed by design (D17).
 - PyMuPDF is licensed AGPL-3.0 or commercially. Check the licence before distributing.
 
 Full details are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §8.

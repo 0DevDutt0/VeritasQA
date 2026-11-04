@@ -1,14 +1,16 @@
-# VeritasQA environment setup (P0-ENV)
+# VeritasQA environment setup
 
-This document explains how to recreate the development environment and records what was validated on the development machine. It covers three layers:
+**V1 (D17, 2026-11-04).** VeritasQA V1 is deterministic, LLM-free and embedding-free. It needs only the baseline layer, `requirements.txt`: no GPU, no PyTorch and no model. Sections 1 to 8 record the P0-ENV environment that was built and validated before D17. They are kept as history, and each one is marked where it is historical. Section 9 records the V1 re-verification.
 
-1. **Baseline** (`requirements.txt`): the CPU pipeline and the test suite. No GPU, PyTorch or model is needed.
-2. **GPU group** (`requirements-gpu.txt`, `constraints-gpu.txt`): PyTorch with CUDA, for the optional neural components.
-3. **Experimental group** (`requirements-experimental.txt`): NumPy, scikit-learn, spaCy, NLTK, rapidfuzz and sentence-transformers, for the benchmark phase (SPEC §4, §9, P9a).
+This document explains how to recreate the environment and records what was validated on the development machine. It covers:
 
-Nothing in the baseline pipeline imports the GPU or experimental groups. Model weights are stored under `models/` and are never committed. OCR is out of scope here: Tesseract is not installed (blocker B2 in `PROGRESS.md`).
+1. **Baseline** (`requirements.txt`): the V1 pipeline and the test suite. Required.
+2. **Optional TF-IDF and NLP group** (`requirements-experimental.txt`): scikit-learn for the TF-IDF baseline (benchmark-only); spaCy and NLTK, pending the owner's decision (Q6); rapidfuzz, recommended for removal (Q6).
+3. **Historical P0-ENV layers** (`requirements-gpu.txt`, `constraints-gpu.txt`, and the two model downloads): removed from the V1 plan (D17). They remain installed in the project venv until P0-CLEAN is approved (Q7).
 
-## 1. Tested environment
+Nothing in the V1 pipeline imports an optional or historical layer. OCR is out of scope here: Tesseract is not installed (blocker B2 in `PROGRESS.md`).
+
+## 1. Tested environment (development machine; GPU rows are historical, D17)
 
 | Item | Value on the development machine |
 | --- | --- |
@@ -25,14 +27,19 @@ Nothing in the baseline pipeline imports the GPU or experimental groups. Model w
 
 ## 2. Layers and what each one provides
 
-| Layer | File | Installed into the project venv | Imported by the baseline pipeline |
+| Layer | File | Status under D17 | Imported by the V1 pipeline |
 | --- | --- | --- | --- |
-| Baseline | `requirements.txt` | PyMuPDF 1.26.6, pdfplumber 0.11.10, pydantic 2.14.2, pytest 9.2.0 | Yes |
-| GPU | `requirements-gpu.txt`, `constraints-gpu.txt` | torch 2.14.1+cu130 (no torchvision, no torchaudio) | No |
-| Experimental | `requirements-experimental.txt` | numpy 2.5.4, scikit-learn 1.9.1, spacy 3.8.18, nltk 3.10.4, rapidfuzz 3.14.6, sentence-transformers 6.2.0, huggingface-hub 2.4.0 | No |
-| Full lock | `requirements-validated.txt` | Every package above and its transitive dependencies, at exact versions (82 entries) | No |
+| Baseline | `requirements.txt` | V1, necessary: PyMuPDF 1.26.6, pdfplumber 0.11.10, pydantic 2.14.2, pytest 9.2.0 (20 distributions in total, with their dependencies) | Yes |
+| TF-IDF (experimental) | `requirements-experimental.txt`: numpy 2.5.4, scikit-learn 1.9.1 | Optional. Benchmark-only (P9a), outside the acceptance path | No |
+| NLP (experimental) | `requirements-experimental.txt`: spacy 3.8.18, nltk 3.10.4 | Optional, pending Q6 | No |
+| rapidfuzz (experimental) | `requirements-experimental.txt`: rapidfuzz 3.14.6 | Recommended for removal, pending Q6 | No |
+| GPU (historical) | `requirements-gpu.txt`, `constraints-gpu.txt`: torch 2.14.1+cu130 | Removed from the V1 plan (D17). Removal pending P0-CLEAN | No |
+| Embedding and reranking models (historical) | `scripts/download_models.py`, `models/`: sentence-transformers 6.2.0, transformers 5.22.1, huggingface-hub 2.4.0; all-MiniLM-L6-v2 and ms-marco-MiniLM-L6-v2 | Removed from the V1 plan (D17). Removal pending P0-CLEAN | No |
+| Full lock (superseded) | `requirements-validated.txt` | Superseded (D17). Regenerated in P0-CLEAN, not edited | No |
 
-## 3. Reproduce the environment
+## 3. Reproduce the V1 environment
+
+V1 needs steps 1 and 2 only. Steps 3 to 6 are the historical P0-ENV procedure (D17) and must not be run for V1.
 
 Run these commands from the repository root in PowerShell. In Git Bash, use `VeritasQA/Scripts/python.exe` with forward slashes.
 
@@ -44,6 +51,7 @@ py -3.12 -m venv VeritasQA
 VeritasQA\Scripts\python.exe -m pip install -r requirements.txt
 VeritasQA\Scripts\python.exe -m pytest -q
 
+# --- Historical (P0-ENV, D17): not part of V1. Do not run the lines below for V1. ---
 # 3. GPU group (PyTorch index; pinned).
 VeritasQA\Scripts\python.exe -m pip install -r requirements-gpu.txt
 
@@ -61,7 +69,7 @@ VeritasQA\Scripts\python.exe scripts\validate_models.py
 VeritasQA\Scripts\python.exe -m pytest -q
 ```
 
-To rebuild the whole validated environment in one step from the lock file, use a fresh venv:
+Historical (P0-ENV, D17). To rebuild the whole validated environment in one step from the lock file, use a fresh venv. The lock is superseded and is regenerated in P0-CLEAN:
 
 ```powershell
 VeritasQA\Scripts\python.exe -m pip install --extra-index-url https://download.pytorch.org/whl/cu130 -r requirements-validated.txt
@@ -69,7 +77,9 @@ VeritasQA\Scripts\python.exe -m pip install --extra-index-url https://download.p
 
 `--extra-index-url` is needed because the torch line is served by the PyTorch index. Every other package comes from PyPI.
 
-## 4. Device selection (`VERITASQA_DEVICE`)
+## 4. Device selection (`VERITASQA_DEVICE`): historical (D17)
+
+V1 does not read this variable. `app/common/device.py` is removed in P0-CLEAN.
 
 The variable is read from the process environment only. No `.env` file is loaded (`app/common/device.py`, `.env.example`).
 
@@ -82,7 +92,7 @@ The variable is read from the process environment only. No `.env` file is loaded
 
 Example: `$env:VERITASQA_DEVICE = "cpu"` in PowerShell.
 
-## 5. Validation results (development machine)
+## 5. Validation results (development machine): historical P0-ENV record
 
 All results below come from commands that were run. Each row names the command.
 
@@ -98,7 +108,7 @@ All results below come from commands that were run. Each row names the command.
 | Fresh clone of `origin/main` (commit `c5d3f61`), section 3 run as written | `pytest -q -rs` at each step | Baseline step: **33 passed, 11 skipped**. The git-ignore test runs and passes in the clone. Skips name the missing torch and model files. After all steps: **44 passed** in 11.10 s. See section 6. |
 | Fresh venv rebuilt from `requirements-validated.txt` (commit `f901558`, before the negative-path tests were added) | see section 6 | 41 passed in 13.89 s. Freeze identical to the lock. |
 
-## 6. Full-lock rebuild
+## 6. Full-lock rebuild: historical (the lock is superseded by D17)
 
 A new venv was created from the base Python 3.12.10 install and filled with the lock only:
 
@@ -126,9 +136,9 @@ Which groups were rebuilt from scratch: the baseline (section 5, clean venv with
 - Step 5: `download_models.py` and `download_models.py --nltk`. Both models verify with the same byte counts as above, and `punkt_tab` has 77 files.
 - Step 6: `validate_environment.py` reports `baseline valid`, `validate_gpu.py` reports `GPU validated`, and `validate_models.py` reports `all model checks passed`. `pytest -q` then gives 44 passed in 11.10 s.
 
-No change to section 3 was needed.
+That run was made before D17, against the P0-ENV procedure. Section 3 is now the V1 procedure, so that run no longer describes it. The V1 steps were re-verified on 2026-11-04 (section 9).
 
-## 7. Model artifacts
+## 7. Model artifacts: historical (removed from the V1 plan by D17)
 
 Each model is pinned to one Hub commit. `scripts/download_models.py` fetches only the files listed below. It checks each file against the digest the Hub publishes for that commit (SHA-256 for LFS files, git blob ID otherwise). It then writes a manifest under `models/manifests/`. Alternate formats (ONNX, OpenVINO, TensorFlow, Rust, Flax and PyTorch `.bin` copies) are not downloaded.
 
@@ -141,7 +151,7 @@ Both models are encoder or classifier architectures. Neither has a language-mode
 
 The NLTK resource `punkt_tab` (sentence tokenizer, 77 extracted files, 10,885,330 bytes, plus the 4,319,076-byte archive) is stored under `models/nltk_data/`. It was fetched with `scripts\download_models.py --nltk`. This project does not verify its digests, because NLTK does not publish manifests in the same form.
 
-**Downloaded is not validated for use.** Both models were downloaded, loaded from their local directories with the Hub offline, and run on the GPU and the CPU. Neither has been benchmarked. Neither enters the pipeline until a benchmark on the development split shows a gain over the BM25 baseline (SPEC §4, §9; P9a).
+**Downloaded is not validated for use.** Both models were downloaded, loaded from their local directories with the Hub offline, and run on the GPU and the CPU. Neither has been benchmarked. Neither enters the V1 pipeline: D17 removes both from the V1 plan, so the benchmark gate no longer applies to them.
 
 ## 8. Known limitations
 
@@ -152,3 +162,23 @@ The NLTK resource `punkt_tab` (sentence tokenizer, 77 extracted files, 10,885,33
 - Tesseract OCR is not installed (blocker B2). No GPU OCR library or model was installed.
 - PyMuPDF is AGPL-3.0 or commercially licensed (question Q4 in `PROGRESS.md`).
 - The optional packages are validated for installation, import and the smoke tests above. Their use in the pipeline is not validated yet.
+
+## 9. V1 re-verification (2026-11-04, after D17)
+
+Section 3, steps 1 and 2, were run as written. The baseline ran in a scratch venv under the session scratchpad, outside the repository, built with the base Python 3.12.10 interpreter. No GPU and no model were installed in it.
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Baseline install | `python -m pip install -r requirements.txt` | Exit code 0 |
+| Dependency check | `python -m pip check` | No broken requirements found |
+| Test suite | `python -m pytest -q` | 34 passed, 10 skipped in 0.31 s |
+| torch present | `importlib.util.find_spec("torch")` | False |
+| Freeze | `python -m pip freeze --exclude pip` | 20 packages, the baseline closure |
+| Venv size | `du -sh` | 137 MB on disk |
+
+The project venv, which still holds the P0-ENV packages, was also checked the same day, after the documentation change:
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Full suite | `python -m pytest -q` | 44 passed in 10.19 s |
+| Baseline validator | `scripts\validate_environment.py` | `RESULT: baseline valid`, exit 0 |

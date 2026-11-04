@@ -4,7 +4,9 @@
 
 ## How to resume (after `/clear`)
 
-Say **"continue"**. Then work through the first phase below whose status is `not started` or `in progress`, and follow the per-phase workflow.
+Say **"continue"**. Then work through the first phase below whose status is `in progress` or `not started`, and follow the per-phase workflow. A phase whose status is `blocked` on an owner decision stops the run: report the open decision and wait. Do not start a later phase.
+
+**Current resume point (2026-11-04, D17):** P0-REV is complete. P0-CLEAN is `blocked` on the owner's decisions Q6 and Q7. P1 has not started, and it must not start until the owner has decided Q6 and Q7 and said to continue.
 
 | Item | Value |
 | --- | --- |
@@ -40,8 +42,10 @@ Say **"continue"**. Then work through the first phase below whose status is `not
 | Phase | Name | Status | Exit-criteria command |
 | --- | --- | --- | --- |
 | P0 | Repository foundation, plan and architecture | complete | `pytest -q tests/unit/test_p0_foundation.py` |
-| P0-ENV | Environment bootstrap: CUDA torch, optional packages, pinned model artifacts (inserted before P1; see D11) | complete-with-limitations | `pytest -q` (full suite), `scripts/validate_environment.py`, `scripts/validate_gpu.py`, `scripts/validate_models.py` |
-| P1 | PDF ingestion, extraction and page quality | not started | `pytest -q tests/unit/test_p1_*.py tests/integration/test_p1_*.py` |
+| P0-ENV | Environment bootstrap: CUDA torch, optional packages, pinned model artifacts (inserted before P1; see D11) | complete-with-limitations; **partly superseded by D17** | `pytest -q` (full suite), `scripts/validate_environment.py`, `scripts/validate_gpu.py`, `scripts/validate_models.py` |
+| P0-REV | V1 revision: deterministic, LLM-free and embedding-free architecture, dependency plan and Phase 0 checklist (D17) | complete | `pytest -q` (full suite), `scripts/validate_environment.py` |
+| P0-CLEAN | Owner-approved cleanup of the GPU, model and optional layers; V1 venv rebuilt and lock regenerated (proposal under P0-CLEAN) | **blocked** (Q6, Q7) | `pytest -q` in a fresh V1 venv, `pip check`, deny-list import test |
+| P1 | PDF ingestion, extraction and page quality | not started (held until Q6 and Q7 are decided) | `pytest -q tests/unit/test_p1_*.py tests/integration/test_p1_*.py` |
 | P2 | Structure reconstruction, provenance and segmentation | not started | `pytest -q tests/unit/test_p2_*.py tests/integration/test_p2_*.py` |
 | P3 | SQLite schema, FTS5 and exact phrase retrieval | not started | `pytest -q tests/unit/test_p3_*.py tests/integration/test_p3_*.py` |
 | P4 | BM25 retrieval and candidate ranking | not started | `pytest -q tests/unit/test_p4_*.py tests/integration/test_p4_*.py` |
@@ -70,7 +74,13 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
 - **Q2.** The repository is public. Gold annotations quote the source PDF, which may be copyrighted. Should `data/evaluations/gold/` be committed (the current default) or kept local (git-ignored)?
 - **Q3.** Should Tesseract be installed for real OCR validation (see B2)?
 - **Q4.** PyMuPDF is AGPL-3.0 or commercially licensed (see `docs/ARCHITECTURE.md` §8). Is that acceptable for a public repository?
-- **Q5.** P0-ENV was run as an inserted environment phase, from the "Phase 0 execution instructions" supplied on 2026-11-04 (D11). Confirm that reading. Confirm also that the GPU and experimental groups and the two downloaded models stay in the project venv until a benchmark decides their use (D12, D13).
+- **Q5. Closed by D17.** The owner's 2026-11-04 revision reversed the GPU and model parts of P0-ENV (D12, D13, D16). Their results stay below as history. The inserted-phase reading of P0-ENV (D11) is kept as recorded. Nothing further is asked here.
+- **Q6. Decide the optional packages in the V1 plan.** The packages are measured in the P0-ENV inventory ("Classification under D17").
+  - *spaCy and NLTK, with the `punkt_tab` resource.* Neither is named in the V1 retained list or on the removal list. Recommendation: remove them from the V1 plan. P5 needs a deterministic, abbreviation-aware splitter, and `punkt_tab` is a learned model that this project does not verify by digest. Keep them only if P5 measurements show that the rule-based splitter loses.
+  - *rapidfuzz.* Not in the V1 retained list. Recommendation: remove it. Approximate matching accepts inexact matches, which works against exact-evidence retrieval.
+  - *scikit-learn and numpy (TF-IDF).* Recommendation: keep them as an optional, benchmark-only group outside `requirements.txt` and the acceptance path, as D17 allows.
+- **Q7. Approve the cleanup.** Approve the proposal under P0-CLEAN. Nothing is deleted, uninstalled or regenerated until you approve. The shared pip cache (18 GB) and the shared Hugging Face cache (9.7 GB) are not project-owned, and they are outside the proposal unless you ask otherwise.
+- **Q8. SPEC wording.** Keep `docs/SPEC.md` verbatim with the repository precedence note (D18), or re-issue the specification with the V1 revision? Recommendation: keep it verbatim.
 
 ## Decisions log
 
@@ -87,11 +97,13 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
 | D9 | No CI workflow yet. | Not requested. Can be added later as a separate phase task. |
 | D10 | Dependencies are pinned in `requirements.txt` and validated in a clean venv. | Reproducibility (`SPEC §13`). |
 | D11 | The "Phase 0 execution instructions" (2026-11-04) run as an inserted environment phase, **P0-ENV**, before P1. SPEC P0 stays complete. | Those instructions cover environment work the SPEC does not list. SPEC P0 is already done, and the instructions say not to start P1. |
-| D12 | Layering. `requirements.txt` is unchanged. GPU and experimental packages live in separate files, installed into the same venv. No pipeline module imports them. | SPEC §1 and §4 keep optional components out of the baseline until a benchmark justifies them. SPEC §13 recommends spaCy/NLTK, so they are validated, not wired in. |
-| D13 | Two models are downloaded and validated, not benchmarked, each pinned to a Hub commit: `sentence-transformers/all-MiniLM-L6-v2` (embedder) and `cross-encoder/ms-marco-MiniLM-L6-v2` (reranker). Adoption is gated on P9a. | The instructions name one embedder and one cross-encoder and require load and inference tests. SPEC §4 requires a benchmark before use. |
-| D14 | Downloads go to `models/.hf-home` and `models/nltk_data`. The user-level `HF_HOME` (`E:\Personal\AI-Models\huggingface`) is not written. | Every artifact stays in the project, where the ignore rules cover it. The shared cache is left alone. |
-| D15 | `VERITASQA_DEVICE` (`auto`, `cuda`, `cpu`) is read from the process environment only. Invalid values raise. `cuda` never falls back silently. | The instructions require an actionable error for explicit CUDA. Reading `.env` would add a dependency and a hidden configuration source. |
-| D16 | torch is pinned to `2.14.1+cu130`. torchvision and torchaudio are not installed. | The cu130 index tops out at 2.14.1, while PyPI lists 2.15.0 with a CPU-only Windows wheel. No code uses torchvision or torchaudio. |
+| D12 | **[Superseded in part by D17: the GPU group is outside V1, and the experimental group is optional.]** Layering. `requirements.txt` is unchanged. GPU and experimental packages live in separate files, installed into the same venv. No pipeline module imports them. | SPEC §1 and §4 keep optional components out of the baseline until a benchmark justifies them. SPEC §13 recommends spaCy/NLTK, so they are validated, not wired in. |
+| D13 | **[Superseded by D17: no model is part of V1.]** Two models are downloaded and validated, not benchmarked, each pinned to a Hub commit: `sentence-transformers/all-MiniLM-L6-v2` (embedder) and `cross-encoder/ms-marco-MiniLM-L6-v2` (reranker). Adoption is gated on P9a. | The instructions name one embedder and one cross-encoder and require load and inference tests. SPEC §4 requires a benchmark before use. |
+| D14 | **[Superseded in part by D17: no download is part of V1. The rule for the user-level cache still holds.]** Downloads go to `models/.hf-home` and `models/nltk_data`. The user-level `HF_HOME` (`E:\Personal\AI-Models\huggingface`) is not written. | Every artifact stays in the project, where the ignore rules cover it. The shared cache is left alone. |
+| D15 | **[Superseded in part by D17: V1 reads no device setting. The rules below applied to the historical GPU layer.]** `VERITASQA_DEVICE` (`auto`, `cuda`, `cpu`) is read from the process environment only. Invalid values raise. `cuda` never falls back silently. | The instructions require an actionable error for explicit CUDA. Reading `.env` would add a dependency and a hidden configuration source. |
+| D16 | **[Superseded by D17: PyTorch is outside V1.]** torch is pinned to `2.14.1+cu130`. torchvision and torchaudio are not installed. | The cu130 index tops out at 2.14.1, while PyPI lists 2.15.0 with a CPU-only Windows wheel. No code uses torchvision or torchaudio. |
+| D17 | **V1 is deterministic, LLM-free and embedding-free** (owner's change of plans, 2026-11-04). Removed from the V1 dependency and model-download plan: sentence-transformers, embedding models, dense retrieval, cross-encoder rerankers, PyTorch and CUDA, vector databases and generative LLMs. TF-IDF is kept only as an optional, benchmark-only baseline. It is sparse lexical weighting, never an embedding. Controlled synonym and stemming rules are added to P4 as recall-only, versioned and logged. Nothing is uninstalled or deleted until the owner approves the cleanup (Q7). | The owner's directive asks for maximum factual precision, minimum incorrect accepted answers and a light installation. CUDA is not required by the retrieval and verification pipeline. |
+| D18 | `docs/SPEC.md` keeps its verbatim body. Where SPEC §4 (optional embeddings and cross-encoder reranking) or SPEC §13 (spaCy and NLTK) differ from D17, D17 governs V1. A repository note in the SPEC header points to this decision. | The SPEC is the owner's text. A change of plan is recorded in the repository, not by rewriting the owner's prompt. Q8 asks the owner to confirm this. |
 
 ---
 
@@ -122,7 +134,8 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
 
 ### P0-ENV — Environment bootstrap, CUDA validation and pinned model artifacts (inserted before P1)
 
-- **Status:** complete-with-limitations
+- **Status:** complete-with-limitations; **partly superseded by D17** (see the revision note)
+- **Revision (D17, 2026-11-04):** the GPU layer and the two embedding and reranking models, with the download and validation scripts that serve them, are outside V1. They remain installed and in the repository until P0-CLEAN is approved (Q7). The results below stay as history. The classification of what is installed and downloaded follows the table in this section.
 - **Reading taken (D11):** the "Phase 0 execution instructions" of 2026-11-04 describe an environment phase. The SPEC's P0 (repository foundation) was already complete, so this phase is recorded as P0-ENV and run before P1. P1 is not started. Q5 asks the owner to confirm this reading.
 - **Branch:** `phase/p0-env-bootstrap`, fast-forward merged into `main`.
 - **SPEC pointers:** §1 (constraints), §4 (optional components, benchmark-gated), §9 (calibration), §13 (dependencies), §15 (behaviour)
@@ -157,6 +170,34 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
 | ms-marco-MiniLM-L6-v2 (reranker) | yes, under `models/` | yes: 7 files, 91,819,431 bytes, each file matched to the Hub digest | from the local path, Hub offline, `cuda:0` | output shape (2,), all finite, maximum score difference against CPU 2.86e-06 |
 | Tesseract OCR (B2) | no | no | no | not attempted; left as it was |
 
+**Classification under D17 (measured 2026-11-04, read-only).** One dependency closure over the retained pins gives each of the 83 installed distributions exactly one bucket. Sizes are the sums of the installed files listed in each package's metadata. The project venv is 3.7 GB on disk.
+
+| Bucket | Distributions | Installed size | Status under D17 |
+| --- | --- | --- | --- |
+| 1. Necessary: PyMuPDF 1.26.6, pdfplumber 0.11.10, pydantic 2.14.2, pytest 9.2.0, and 16 transitive packages | 20 | 170.7 MB | Necessary. Retained in V1. |
+| 2a. Optional, shared by TF-IDF and NLP: numpy, joblib, cloudpickle | 3 | 56.2 MB | Optional (Q6). Needed only if the TF-IDF baseline is kept. |
+| 2b. Optional, TF-IDF only: scikit-learn, scipy, threadpoolctl, narwhals | 4 | 182.7 MB | Optional. Benchmark-only experimental baseline (P9a). |
+| 2c. Optional, NLP only: spaCy, NLTK, and 36 dependencies (among them Jinja2, MarkupSafe, setuptools, requests) | 38 | 171.7 MB | Optional, pending Q6. Recommended for removal. |
+| 3. rapidfuzz 3.14.6 | 1 | 6.8 MB | Owner decision (Q6). Recommended for removal. |
+| 4. Removed by directive: torch 2.14.1+cu130 (its CUDA libraries are inside the package), sentence-transformers, transformers, tokenizers, safetensors, huggingface-hub, hf-xet, httpx2, httpcore2, truststore, PyYAML, and the torch-only sympy, networkx, mpmath, filelock, fsspec | 16 | 3,311.4 MB | Unnecessary under V1. Removed in P0-CLEAN. |
+| 5. Tooling: pip 26.3 | 1 | 11.9 MB | Keep. Installer tooling, not a project dependency. |
+| Total | 83 | 3,911.4 MB | |
+
+No `nvidia-*` package is installed; the CUDA runtime ships inside `torch`. The buckets follow from the pins as they are today. If Q6 keeps spaCy and NLTK, the 38 NLP distributions stay in the venv. If it keeps TF-IDF, the seven TF-IDF distributions stay.
+
+**Downloads and caches (measured 2026-11-04, read-only).**
+
+| Item | Location | Size | V1 status | Proposed action (P0-CLEAN, needs Q7) |
+| --- | --- | --- | --- | --- |
+| all-MiniLM-L6-v2 (embedding encoder) | `models/embeddings/` | 88 MB | Unnecessary (embedding model, D17) | Remove |
+| ms-marco-MiniLM-L6-v2 (cross-encoder) | `models/rerankers/` | 88 MB | Unnecessary (reranker, D17) | Remove |
+| NLTK `punkt_tab` (with its archive) | `models/nltk_data/` | 15 MB | Optional, tied to Q6. This project does not verify its digests | Remove with NLTK; otherwise keep |
+| Download cache | `models/.hf-home/` | 56 KB | Unnecessary | Remove |
+| Model manifests (tracked in git) | `models/manifests/` | 8 KB | Unnecessary | Remove. Git history keeps them |
+| Pip download cache (shared) | `C:\Users\devdu\AppData\Local\pip\cache` (`http-v2` 18 GB, `wheels` 19 MB) | 18 GB | Not project-owned. It held 17 GB before P0-ENV installed anything | Out of scope unless the owner asks (Q7) |
+| Shared Hugging Face cache (user-level `HF_HOME`) | `E:\Personal\AI-Models\huggingface` | 9.7 GB | Not written by this project. Neither chosen model is in it | Out of scope |
+| Project venv | `VeritasQA/` (git-ignored) | 3.7 GB | Replaced by the V1 venv | Rebuild, then delete the old one (P0-CLEAN step 1) |
+
 - **Limitations:**
   - Both models are validated for download, digest, non-generative architecture, loading and inference. Neither is benchmarked. Neither may enter the pipeline before P9a shows a gain over the BM25 baseline (SPEC §4, §9).
   - The GPU is a laptop RTX 5090 with 24,463 MiB. All measurements were taken on this device.
@@ -166,6 +207,55 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
   - No Tesseract and no GPU OCR library were installed. B2 is unchanged.
   - The optional groups are not used by any pipeline module, so their behaviour in the pipeline is unvalidated.
 - **Reproducibility:** `docs/SETUP.md` §3 and §6. The baseline was rebuilt from scratch in a clean venv. The whole validated environment, including the GPU and experimental groups, was rebuilt from scratch from `requirements-validated.txt`. `docs/SETUP.md` §3 was also run as written in a fresh clone of `origin/main`.
+
+### P0-REV — V1 revision: deterministic, LLM-free, embedding-free (D17)
+
+- **Status:** complete (documentation, inventory and verification). The cleanup is a separate phase, P0-CLEAN, and it is blocked until the owner decides Q6 and Q7.
+- **Trigger:** the owner's change of plans of 2026-11-04 (D17). It asks for the architecture documentation, the dependency plan and the Phase 0 checklist to be updated first. It rules out Phase 1 work, and it rules out uninstalls and deletions until the inventory is reported.
+- **SPEC pointers:** §1 (constraints), §4 (retrieval), §13 (recommended technologies), §14 (phases), §16 (definition of done, item 11).
+- **Done:**
+  - `docs/ARCHITECTURE.md`: §1 non-goals; new §1A (precedence, determinism target, retained components mapped to phases, removed items, import target); §2 note on the historical modules; §4 controlled synonym and stemming rules, and the status of TF-IDF; §5 expansion policy; §7 dependency plan (baseline, optional, removed); §8 risks; §9 setup.
+  - `docs/SETUP.md`: the V1 setup comes first, the P0-ENV sections are marked historical, and the V1 re-verification is recorded in §9.
+  - `README.md`, `models/README.md`, and the headers of `requirements.txt`, `requirements-experimental.txt`, `requirements-gpu.txt`, `constraints-gpu.txt`, `requirements-validated.txt` and `.env.example`. `requirements-experimental.txt` no longer lists `sentence-transformers` or `huggingface-hub`, and no longer needs the torch constraint. The GPU, constraint and lock files carry a SUPERSEDED banner. Their pins are unchanged, because the lock is regenerated, not hand-edited.
+  - `docs/SPEC.md`: the body is unchanged. The repository-written header notes the V1 precedence (D18).
+  - This file: status overview, Q5 (closed), Q6 to Q8, D12 to D16 marked superseded in part, D17 and D18, the P0-ENV classification, P4 and P9a scope, and DoD 11.
+  - Inventory: all 83 installed distributions are classified from one dependency closure (P0-ENV, "Classification under D17"). Sizes are measured. Models, caches and the project venv were measured read-only. Nothing was uninstalled or deleted.
+  - The FTS5 `porter` tokenizer was checked in the project SQLite (3.49.1). The check shows that `run` matches `running` only with the porter tokenizer. This settles the stemming design for P4.
+- **Result (recorded from runs on 2026-11-04):**
+  - Project venv, full suite (`pytest -q`): before the documentation change, `44 passed in 10.62s`; after it, `44 passed in 10.19s`.
+  - `scripts/validate_environment.py` in the project venv: `RESULT: baseline valid`, exit 0.
+  - Fresh V1 venv built from `requirements.txt` only, in the session scratchpad (outside the repository), Python 3.12.10: install exit 0; `pip check`: No broken requirements found; `pytest -q`: `34 passed, 10 skipped in 0.31s`; torch not installed; `pip freeze --exclude pip`: 20 packages, which is the baseline closure; venv size 137 MB on disk.
+  - The skips match the P0-ENV clean-venv run (34 passed, 10 skipped). They come from the missing torch, spaCy, NLTK and model files, not from failing tests.
+- **Checklist (Phase 0, revised):**
+  - [x] Architecture document revised.
+  - [x] Dependency plan revised and classified from one closure.
+  - [x] Installed packages inventoried (83 distributions) and classified.
+  - [x] Downloaded models, caches and the project venv inventoried, read-only.
+  - [x] Existing test suite re-run after the documentation change (result above).
+  - [x] V1 baseline re-verified in a fresh venv built from `requirements.txt` only (result above).
+  - [ ] Q6 decided by the owner (spaCy, NLTK, `punkt_tab`, rapidfuzz, TF-IDF).
+  - [ ] Q7 decided by the owner (cleanup approval).
+  - [ ] Q8 decided by the owner (SPEC wording).
+  - [ ] P0-CLEAN executed after approval.
+  - [ ] P1 not started; it is held until Q6 and Q7 are decided.
+- **Limitations:**
+  - The historical code is still present and still imports torch lazily (`app/common/device.py`, `app/common/models.py`). The project venv still holds torch and both models. "V1 imports no torch" is the target until P0-CLEAN.
+  - SPEC §4 and §13 still describe the superseded options. D18 governs V1 until the owner decides Q8.
+  - The pins did not change, so the earlier clean-venv validations (P0 and P0-ENV) still hold. The re-verification above confirms that for the current file.
+
+### P0-CLEAN — approved cleanup (blocked: Q6, Q7)
+
+- **Status:** blocked. Nothing in this list has been executed. It starts only when the owner has decided Q6 and Q7.
+- **Scope (proposal):**
+  1. **Rebuild the project venv instead of uninstalling in place.** Create a new venv from `requirements.txt`, plus any optional group that the owner keeps under Q6. Run `pip check`, `pytest -q` and `scripts/validate_environment.py` in it. Delete the old project venv (`VeritasQA/`, 3.7 GB) only after that succeeds. An in-place uninstall would leave orphaned transitive packages.
+  2. **Remove the historical model artifacts:** `models/embeddings/`, `models/rerankers/`, `models/.hf-home/`, and the tracked manifests `models/manifests/*.json` (git history keeps them). Remove `models/nltk_data/` only if Q6 removes NLTK.
+  3. **Remove the historical code:** `app/common/device.py`, `app/common/models.py`, `scripts/download_models.py`, `scripts/validate_gpu.py`, `scripts/validate_models.py`. Reduce `scripts/validate_environment.py` to the baseline, since it currently checks torch, spaCy and NLTK.
+  4. **Remove the historical tests:** `tests/unit/test_p0env_device.py`, `tests/unit/test_p0env_manifests.py` (its last test asserts that a manifest exists), `tests/integration/test_p0env_gpu.py`, `tests/integration/test_p0env_device_negative.py` and `tests/integration/test_p0env_models.py`. Keep `tests/integration/test_p0env_nlp.py` only if Q6 keeps NLP. Remove the GPU and model skip logic from `tests/conftest.py`.
+  5. **Remove the markers and the setting:** `requires_cuda` and `requires_models` in `pyproject.toml`, and `.env.example` (`VERITASQA_DEVICE` has no V1 use).
+  6. **Dependency files:** delete `requirements-gpu.txt` and `constraints-gpu.txt`. Reduce `requirements-experimental.txt` as Q6 decides. Regenerate `requirements-validated.txt` from the new venv with `pip freeze`, or replace it with the freeze procedure in SETUP. Do not hand-edit the lock.
+  7. **Add a deny-list test** (`tests/unit/test_p0_dependencies.py`). No requirement file and no `pyproject.toml` dependency may name torch, torchvision, torchaudio, sentence-transformers, transformers, huggingface-hub, tokenizers, safetensors, a vector database (faiss, chromadb), or an LLM SDK (openai, anthropic). No module under `app/` may import them. Add rapidfuzz to the list if Q6 removes it.
+  8. **Out of scope:** the shared pip cache (18 GB; it held 17 GB before P0-ENV installed anything), the shared Hugging Face cache (9.7 GB, not written by this project) and Ollama. Purge them only if the owner asks.
+- **Exit criteria:** `pytest -q` in the new V1 venv passes; `pip check` is clean; the regenerated lock equals the venv's freeze; `scripts/validate_environment.py` reports baseline valid; the deny-list test passes.
 
 ### P1 — PDF ingestion, extraction and page-level quality validation
 
@@ -226,10 +316,13 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
   - `app/retrieval/terms.py`: extract numeric, date and identifier terms (for example `3.5`, `10%`, `2024-01-01`, `ABC-123`) so verification can check them later.
   - Duplicate removal by hash of normalized text. Expansion adds neighbours and section siblings as context only and never replaces evidence.
   - RRF is not implemented. It is added only if a benchmark shows a gain (P9).
+  - **Controlled synonym and stemming rules (D17).** Recall only. A versioned data file (planned `config/retrieval_rules.toml`) lists each rule with an ID, a version, positive examples, counter-examples and a reviewer note. Expansion is query-time and one-way; the index is not rewritten. Each expansion is recorded in the retrieval trace with its rule ID. Expanded matches only add candidates. The entity, value, negation and condition checks (P6) run on raw text and cannot be satisfied by an expansion alone.
+  - **No index stemming in V1.** The FTS5 `porter` tokenizer exists in this SQLite build (3.49.1), and with it `run` matches `running`. The tokenizer is fixed per FTS table, so it needs a second table and cannot be switched per query. It is not used unless the P4 regression set shows a need.
+  - **Tests.** Each rule has positive and negative cases, and a false-match regression set covers each rule (`tests/regression/`). Tests assert that each expansion is logged with its rule ID, and that an expansion-only match does not pass a P6 entity, value, negation or condition check.
 - **Interfaces to expose:** `app.retrieval.bm25.search(store, document_id, query, k, weights) -> list[RetrievalCandidate]`.
 - **Exit criteria:** `pytest -q tests/unit/test_p4_*.py tests/integration/test_p4_*.py`
 - **Result:** not run yet
-- **Limitations (expected):** lexical only; synonyms and paraphrases are missed by design.
+- **Limitations (expected):** lexical only. Synonyms are limited to the reviewed rules. Paraphrases are missed by design, and abstention covers the misses.
 
 ### P5 — Question analysis and extractive selection
 
@@ -296,7 +389,7 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
 
 - **Status:** not started
 - **SPEC pointers:** §9 (calibration rules), §11 (held-out separation), §16 DoD 9
-- **Scope:** a sweep harness over K, neighbour window and heading weight, run on the dev split only. It reports results and never writes calibrated values into the policy file. RRF, TF-IDF and embeddings are benchmarked only if the lexical baseline falls short on the real gold set.
+- **Scope:** a sweep harness over K, neighbour window and heading weight, run on the dev split only. It reports results and never writes calibrated values into the policy file. RRF and TF-IDF may run as experimental baselines on the dev split. TF-IDF is sparse lexical weighting, benchmark-only, and outside the acceptance path. Embeddings and cross-encoder reranking are not part of V1 and are not benchmarked (D17).
 - **Exit criteria:** `pytest -q tests/unit/test_p9_*.py`
 - **Result:** not run yet
 
@@ -329,5 +422,5 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
 | 8 | Conflicts exposed, not resolved silently | P7 |
 | 9 | Evaluation metrics from manually verified data | blocked (B3); harness P8a |
 | 10 | Regression tests for discovered failures | P8a (framework), grows as failures are found |
-| 11 | Critical functionality runs without a generative LLM | Holds by design; enforced by the dependency list |
+| 11 | Critical functionality runs without a generative LLM, an embedding model or PyTorch (D17) | The retained pipeline needs none of them. Not yet enforced: `app/common/device.py`, `app/common/models.py` and the model tests remain until P0-CLEAN, which adds a deny-list test |
 | 12 | Documentation explains limitations and reproducible setup | P10 (README), ARCHITECTURE §8–9 |

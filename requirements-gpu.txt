@@ -1,3 +1,6 @@
+# SUPERSEDED (D17, 2026-11-04): not part of VeritasQA V1. Do not install this group for V1.
+# It stays in the repository, and in the current project venv, until P0-CLEAN is approved (Q7).
+# The text below is the P0-ENV record.
 # GPU group (optional): PyTorch with the CUDA 13.0 runtime, for NVIDIA GPUs.
 # Validated on an NVIDIA GeForce RTX 5090 Laptop GPU (compute capability 12.0, sm_120), 24 GB.
 #

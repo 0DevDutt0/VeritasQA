@@ -1,12 +1,38 @@
 # VeritasQA Architecture
 
-Status: P0 (foundation). This document is the design reference. The phase-by-phase execution plan and completion status are in [`PROGRESS.md`](../PROGRESS.md). The authoritative requirements are in [`SPEC.md`](SPEC.md); section references below use `SPEC §n`.
+Status: P0 (foundation), revised 2026-11-04 by decision D17 to a deterministic, LLM-free and embedding-free V1. This document is the design reference. The phase-by-phase execution plan and completion status are in [`PROGRESS.md`](../PROGRESS.md). The authoritative requirements are in [`SPEC.md`](SPEC.md); section references below use `SPEC §n`. Where SPEC §4 or §13 differ from the V1 plan, §1A and D17 govern.
 
 ## 1. Purpose and non-goals
 
-VeritasQA answers questions about a supplied PDF using only text that exists in that PDF. If the evidence does not support an answer, it abstains and says why (`SPEC` core principle: *no evidence, no answer*).
+VeritasQA answers questions about a supplied PDF using only text that exists in that PDF. If the evidence does not support an answer, it abstains and says why (`SPEC` core principle: *no evidence, no answer*). The V1 objective is maximum factual precision and minimum incorrect accepted answers. Recall is measured and reported, never assumed.
 
-Non-goals for V1: any generative model or hosted LLM API, a vector database, Docker, cloud services, a web UI. The optional CLI arrives in P10 (`SPEC §14`).
+Non-goals for V1 (D17): any generative model or hosted LLM API; any embedding model, sentence-transformer or other learned encoder; dense or vector retrieval; cross-encoder or other learned reranking; PyTorch or any CUDA dependency; any model download at run time; a vector database; Docker; cloud services; a web UI. The optional CLI arrives in P10 (`SPEC §14`).
+
+## 1A. Revised V1 architecture (D17, 2026-11-04)
+
+The owner's change of plans of 2026-11-04 makes V1 a purely deterministic, LLM-free and embedding-free system.
+
+- **Precedence.** For V1, D17 in `PROGRESS.md` governs. Where SPEC §4 (sentence-transformer embeddings and cross-encoder reranking as optional later experiments) or SPEC §13 (spaCy and NLTK as recommended technologies) differ from D17, V1 follows D17. The SPEC body is unchanged (D18).
+- **Determinism target.** The same PDF bytes, question and configuration give the same response. The answer path uses no random seed, no model inference and no network access.
+- **Retained components and their phases:**
+
+  | Component | Phase | Role |
+  | --- | --- | --- |
+  | PyMuPDF, pdfplumber | P1, P2 | Text, block, span and table extraction; page rendering |
+  | Python preprocessing (`normalize_with_map`) | P2 | Reversible index-side normalization. Raw text stays immutable |
+  | Structure-aware paragraph and table extraction | P2 | Sections, paragraphs, list parents, table cells with their headers |
+  | SQLite FTS5 with BM25 | P3, P4 | Candidate retrieval. The raw score is never shown as a probability |
+  | Exact phrase and identifier retrieval | P3, P4 | Phrase check on normalized text; identifiers such as `ABC-123` |
+  | Controlled synonym and stemming rules | P4 | Recall only; versioned, query-time, logged (§4) |
+  | Deterministic extractive answer selection | P5 | Candidate spans from source text; no paraphrase |
+  | Source verification; context, negation and condition checks | P6 | Raw-text checks that decide acceptance |
+  | Conflict detection and mandatory abstention | P7 | Conflicts exposed, never silently resolved |
+  | pytest evaluation and regression testing | P8, P9a | Metrics, gold data, regression cases |
+  | TF-IDF (optional experimental baseline) | P9a | Sparse lexical weighting. Benchmark only; not an embedding |
+  | Tesseract OCR (optional fallback) | P1 | External binary. Not installed on this machine (B2) |
+
+- **Removed from the V1 plan (D17).** Sentence-transformers and the embedding and cross-encoder models; dense and vector retrieval; reranking; PyTorch and CUDA; vector databases; generative LLMs; model downloads at run time.
+- **Import target.** No V1 pipeline module imports torch, sentence_transformers, transformers, huggingface_hub or rapidfuzz. The baseline modules (`app/common/errors.py`, `app/common/files.py`, `app/storage/fts5.py`) meet this now. `app/common/device.py` and `app/common/models.py` still import torch or sentence-transformers lazily; P0-CLEAN removes them (`PROGRESS.md`).
 
 ## 2. Pipeline and package map
 
@@ -33,6 +59,7 @@ Shared primitives that already exist:
 - `app/common/errors.py`: `VeritasQAError` (base) and `StorageError`. Phase-specific subclasses are added where first raised.
 - `app/common/files.py`: UTF-8 read/write helpers for text and JSON. Every file VeritasQA reads or writes uses them, so Windows' cp1252 default never applies. Output uses LF newlines.
 - `app/storage/fts5.py`: `ensure_fts5_available()` and `fts5_available()`. They probe FTS5, phrase queries and `bm25()` on a private in-memory database and raise `StorageError` when any is missing.
+- `app/common/device.py`, `app/common/models.py` and the P0-ENV scripts: historical, outside the V1 plan (D17). P0-CLEAN removes them.
 
 ## 3. Data contracts
 
@@ -72,6 +99,10 @@ These contracts are fixed now so that later phases can rely on them.
 - Heading text sits in a separate FTS5 column so its weight can be tuned (P4).
 - Reciprocal Rank Fusion is not implemented. It is added only if a measured benchmark shows a gain (`SPEC §4`).
 - Candidate depth K is configurable. Recall is measured at several K values; top-3 is never assumed sufficient.
+- **Controlled synonym and stemming rules (P4, D17).** Recall only. The rules live in a versioned data file (planned `config/retrieval_rules.toml`). Each rule has an ID, a version, positive examples, counter-examples and a reviewer note. Expansion is query-time and one-way: a query term may add listed alternatives, and the index is never rewritten. Each expansion is recorded in the retrieval trace with its rule ID. Expanded matches only add candidates. The entity, value, negation and condition checks (§5) run on raw text and cannot be satisfied by an expansion alone.
+- **No stemming in the index for V1.** SQLite's FTS5 `porter` tokenizer exists in this build (SQLite 3.49.1): with it, the query `run` matches `running`. The tokenizer is fixed per FTS table, so it cannot be switched per query, and a stemmed index would need a second FTS table. It is not used unless the P4 regression set shows a need.
+- **TF-IDF is an experiment, not a neural model.** scikit-learn TF-IDF is sparse lexical weighting over the same index text. It is benchmark-only (P9a), outside the acceptance path, and never shown as similarity or as an embedding.
+- **No dense retrieval or reranking in V1.** Embeddings, vector search and cross-encoders are outside V1 (D17).
 
 ## 5. Verification and decision principles
 
@@ -79,6 +110,7 @@ These contracts are fixed now so that later phases can rely on them.
 - Each question type has an explicit list of required checks. Any required check that fails or stays unresolved leads to abstention (`SPEC §9`).
 - Acceptance gates are explicit booleans in a configuration file (for example `require_negation_validation = true`). They are not similarity-score thresholds. Calibration happens only on the development split, and the held-out split is used once (`SPEC §9`, `§11`).
 - Conflicts are never resolved silently. Precedence applies only when the document states it explicitly (`SPEC §8`).
+- **Retrieval expansions never count as support.** A synonym or stem match can only add a candidate. The entity, value, negation and condition checks read raw text and must find the question's terms in it. An expansion that does not appear in the raw text leads to abstention, which is the intended conservative outcome.
 
 ## 6. Storage schema (planned P3)
 
@@ -101,37 +133,57 @@ evaluations(run_id PK, created_at, split, config_json, metrics_json, dataset_sha
 
 Every write uses parameterized SQL. The FTS5 table is queried only through bound parameters.
 
-## 7. Dependencies and rationale
+## 7. Dependency plan (D17)
+
+The V1 dependency plan is the set of packages that the retained components need, plus the optional groups the owner has allowed. The measured inventory of the project venv (83 installed distributions, 2026-11-04) is classified in `PROGRESS.md` under P0-ENV, "Classification under D17".
+
+**Baseline (V1, necessary).** `requirements.txt`:
 
 | Package | Pin | Role | Notes |
 | --- | --- | --- | --- |
-| PyMuPDF | `1.26.6` | Primary text, block, span and bbox extraction; page rendering | 1.26.6 declares no dependencies. The 2.x line pulls in onnxruntime, numpy, networkx, pymupdf4llm and pymupdf_layout, which the baseline does not need. **AGPL-3.0 or commercial licence; review before distributing.** |
-| pdfplumber | `0.11.10` | Table detection and cell geometry (secondary) | Pulls in pdfminer.six and pypdfium2. |
-| pydantic | `2.14.2` | Typed data contracts and response model | |
-| pytest | `9.2.0` | Test runner | Dev dependency. |
+| PyMuPDF | `1.26.6` | Text, block, span and bbox extraction; page rendering (P1) | Declares no dependencies. The 2.x line pulls in onnxruntime, numpy, networkx, pymupdf4llm and pymupdf_layout. **AGPL-3.0 or commercial licence; review before distributing (Q4).** |
+| pdfplumber | `0.11.10` | Table detection and cell geometry (P2) | Pulls in pdfminer.six, pypdfium2 and Pillow; pdfminer.six pulls in cryptography. |
+| pydantic | `2.14.2` | Typed data contracts and the response model | |
+| pytest | `9.2.0` | Test runner (dev) | |
 | sqlite3 (stdlib) | Python 3.12.10 bundles SQLite 3.49.1 | Persistence, FTS5, BM25 | Availability checked at startup. |
+| Tesseract OCR | external binary | OCR fallback (P1) | Not a Python dependency. Called as a CLI with an argument list, never through a shell. Not installed here (B2). |
 
-Excluded from the baseline: FastAPI, any vector database and any LLM SDK (`SPEC §1`, `§3C`, `§13`).
+The baseline closure is 20 distributions, 170.7 MB installed: the four pins above and 16 transitive packages.
 
-P0-ENV (`docs/SETUP.md`) adds two optional groups to the same project venv. They are installed, validated and pinned. No baseline module imports them. Using either group in the pipeline still needs a benchmark (`SPEC §4`, `§9`, P9a).
+**Optional (not in the baseline; not imported by it).**
 
-| Group | File | Contents |
+| Group | Packages | Status |
 | --- | --- | --- |
-| GPU | `requirements-gpu.txt`, `constraints-gpu.txt` | PyTorch 2.14.1+cu130 (CUDA 13.0 wheel from the PyTorch index); no torchvision or torchaudio |
-| Experimental | `requirements-experimental.txt` | NumPy, scikit-learn (TF-IDF experiment), spaCy, NLTK, rapidfuzz, sentence-transformers |
+| TF-IDF baseline | numpy 2.5.4, scikit-learn 1.9.1 (with scipy, joblib, threadpoolctl, narwhals, cloudpickle) | Optional. Sparse lexical weighting, benchmark-only (P9a), outside the acceptance path, never an embedding. Stays out of `requirements.txt`. |
+| NLP | spaCy 3.8.18, NLTK 3.10.4 (with the `punkt_tab` resource) | Optional, pending the owner's decision (Q6). Not named in the retained list. P5 is planned as a deterministic, abbreviation-aware splitter in Python; spaCy and NLTK are kept only if P5 measurements justify them. |
+| Owner decision | rapidfuzz 3.14.6 | Recommended removal (Q6). Approximate matching would accept inexact matches, and no retained component needs it. |
 
-The P0 exclusion list above was this project's own decision, not an owner requirement. This revision follows the owner's specification: it recommends spaCy/NLTK (`SPEC §13`) and treats scikit-learn and embeddings as experiments (`SPEC §4`).
+**Removed from the V1 plan (D17).** These items are still installed, and their files are still present, until P0-CLEAN is approved (Q7). The removal is a rebuild of the project venv, not an in-place uninstall.
 
-**Tesseract OCR** is an external binary, not a Python dependency. The OCR adapter (P1) calls the `tesseract` CLI with an argument list (no shell) and works only when the binary is on PATH. On this machine it is **not installed** (see B2 in `PROGRESS.md`).
+| Item | Packages or files | Reason |
+| --- | --- | --- |
+| PyTorch and CUDA | torch 2.14.1+cu130 (its CUDA libraries are inside the package) and the packages only it needs: sympy, networkx, mpmath, filelock, fsspec | Owner directive: CUDA is not required for the V1 retrieval and verification pipeline. |
+| Embedding and reranking models | sentence-transformers, transformers, tokenizers, safetensors; the models all-MiniLM-L6-v2 and ms-marco-MiniLM-L6-v2 | Owner directive: no embeddings and no cross-encoders. |
+| Model download tooling | huggingface-hub, hf-xet, httpx2, httpcore2, truststore, PyYAML; `scripts/download_models.py` | Only used to fetch the models above. `huggingface-hub` was also a pin in `requirements-experimental.txt`, which D17 removed. |
+| GPU device code and files | `app/common/device.py`, `app/common/models.py`, `requirements-gpu.txt`, `constraints-gpu.txt`, `requirements-validated.txt` (the full lock) | Served only the removed layers. The lock is regenerated from a fresh venv, not edited. |
+| Vector databases and generative LLMs | none installed | Excluded by SPEC §1 and the owner's directive. |
+
+Under D17 the owner's direction defines the V1 plan. It supersedes the P0-ENV layering (D12, D13, D16) and the earlier exclusion list of P0.
+
+**Tesseract OCR** is an external binary, not a Python dependency. The OCR adapter (P1) calls the `tesseract` CLI with an argument list (no shell) and works only when the binary is on PATH. It is not installed on this machine (see B2 in `PROGRESS.md`).
+
+The pins in `requirements.txt` were validated in a clean venv in P0 and P0-ENV. They did not change under D17, and the V1 baseline was re-verified after D17 (`PROGRESS.md`, P0-REV).
 
 ## 8. Risks, assumptions and limitations
 
 - **No real document yet.** Development uses synthetic PDFs that the tests generate. Any measured result from them describes the pipeline, not the owner's document. Definition-of-Done items 1 and 9 (`SPEC §16`) need the owner's PDF and manually annotated gold data (blockers B1 and B3).
 - **OCR is unverified on this machine.** Tesseract is not installed. OCR code paths are guarded and tested with a stub, and the real-binary tests are marked `requires_tesseract` and skipped when the binary is absent.
 - **Reading order is heuristic.** Multi-column and irregular layouts can be misordered. The extractor flags suspected misordering as a warning and never assumes the extracted order is visual order (`SPEC §3A`).
+- **Lexical recall is limited (D17).** Synonym coverage is limited to the reviewed rules. Paraphrases are missed by design, and abstention covers the misses. Stemming and synonym rules can over-match, so each rule must pass a false-match regression set (P4) before it is admitted.
 - **Question understanding is rule-based.** Arbitrary natural language will not be understood. Unsupported or ambiguous questions must abstain (`SPEC §5`).
 - **Licence risk.** PyMuPDF's AGPL terms apply to distribution and network use. The owner should confirm this is acceptable for a public repository.
 - **Public repository.** The repository is public (anonymous `git ls-remote` succeeds). Source PDFs are git-ignored. Gold annotations under `data/evaluations/gold/` are tracked by default, so they become public; the owner must confirm this (open question Q2 in `PROGRESS.md`).
+- **Historical code is still present.** Until P0-CLEAN, `app/common/device.py`, `app/common/models.py`, the P0-ENV scripts and tests, and the project venv still import or contain torch and the two embedding models. The V1 target is met by the baseline modules only. Do not describe V1 as torch-free until P0-CLEAN passes its deny-list test.
 - **Platform.** Development is on Windows 11 with Git Bash and PowerShell. Tests write only to pytest temporary directories.
 
 ## 9. Reproducible setup
@@ -139,10 +191,8 @@ The P0 exclusion list above was this project's own decision, not an owner requir
 ```bash
 # from the repository root, using any Python 3.11+ interpreter
 python -m venv .venv
-.venv/Scripts/python.exe -m pip install -r requirements.txt   # baseline (Windows, Git Bash)
+.venv/Scripts/python.exe -m pip install -r requirements.txt   # V1 baseline (Windows, Git Bash)
 .venv/Scripts/python.exe -m pytest -q                         # baseline test suite
 ```
 
-The optional GPU and experimental groups, the validation scripts and the model download steps are in [`docs/SETUP.md`](SETUP.md).
-
-The project venv used during development lives at `VeritasQA/` in the repository root. It is git-ignored and is not part of the project. The dependency pins in `requirements.txt` were validated in a clean venv (see `PROGRESS.md`, P0).
+The optional TF-IDF and NLP packages and the historical P0-ENV groups and scripts are described in [`docs/SETUP.md`](SETUP.md). Only the baseline is part of V1 (D17). The project venv used during development lives at `VeritasQA/` in the repository root. It is git-ignored and is not part of the project. The pins in `requirements.txt` were validated in a clean venv (see `PROGRESS.md`, P0 and P0-REV).

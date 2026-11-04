@@ -1,18 +1,24 @@
-# Experimental group (optional): NLP and retrieval packages for the benchmark phase (SPEC §4, §13).
-# Validated on Windows 11, CPython 3.12.10, with the torch build from requirements-gpu.txt.
+# Optional experimental group (D17, 2026-11-04). Not part of the V1 baseline.
+# Validated on Windows 11, CPython 3.12.10 during P0-ENV. That validation used the torch build from
+# requirements-gpu.txt. The GPU group is removed from the V1 plan, so this file no longer needs torch.
 #
-# None of these packages is imported by the baseline pipeline. Each enters the pipeline only after
+# Status of each pin under D17:
+# - numpy, scikit-learn: optional TF-IDF baseline. Benchmark-only (P9a) and outside the acceptance path.
+#   TF-IDF is sparse lexical weighting, not a neural embedding.
+# - spacy, nltk: optional, pending the owner's decision (Q6). Not named in the V1 retained list.
+#   The NLTK punkt_tab resource is a learned model, and this project does not verify its digests.
+# - rapidfuzz: recommended removal (Q6). It is not in the V1 retained list, and approximate matching
+#   works against exact-evidence retrieval.
+# - sentence-transformers and huggingface-hub: removed from this file by D17. Their installed copies
+#   stay in the project venv until P0-CLEAN is approved (Q7).
+#
+# Install only if the owner keeps this group (Q6):
+#   python -m pip install -r requirements-experimental.txt
+#
+# None of these packages is imported by the baseline pipeline. Each would enter the pipeline only after
 # a benchmark on the development split justifies it (SPEC §4, §9; P9a).
-#
-# Install after requirements.txt and requirements-gpu.txt, keeping the baseline and torch pins:
-#   python -m pip install -c requirements.txt -c constraints-gpu.txt -r requirements-experimental.txt
-#
-# The constraint on torch matters: sentence-transformers depends on torch, and without the pin
-# pip could replace the CUDA build with a CPU wheel.
 numpy==2.5.4
 scikit-learn==1.9.1
 spacy==3.8.18
 nltk==3.10.4
 rapidfuzz==3.14.6
-sentence-transformers==6.2.0
-huggingface-hub==2.4.0
