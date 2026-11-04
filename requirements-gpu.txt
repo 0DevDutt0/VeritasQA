@@ -1,0 +1,14 @@
+# GPU group (optional): PyTorch with the CUDA 13.0 runtime, for NVIDIA GPUs.
+# Validated on an NVIDIA GeForce RTX 5090 Laptop GPU (compute capability 12.0, sm_120), 24 GB.
+#
+# Install after requirements.txt:
+#   python -m pip install -r requirements.txt -r requirements-gpu.txt
+#
+# - torch comes from the PyTorch index, not PyPI. PyPI publishes no +cu local versions of torch,
+#   so its Windows wheel is the CPU build.
+# - torchvision and torchaudio are deliberately not installed: no VeritasQA code uses them.
+# - The version is pinned exactly. The PyTorch index tops out at 2.14.1 for cu130, while PyPI
+#   already lists 2.15.0. Installing an unpinned torch could silently replace the CUDA build.
+# - The baseline pipeline never imports torch (SPEC §1, §4, §13).
+--extra-index-url https://download.pytorch.org/whl/cu130
+torch==2.14.1+cu130

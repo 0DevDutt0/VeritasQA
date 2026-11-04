@@ -5,13 +5,14 @@ VeritasQA answers questions about a PDF using only text that exists in that PDF.
 
 **No evidence, no answer.** VeritasQA is an extractive, auditable question-answering system. It has no generative model, no hosted LLM API and no vector database. Every accepted answer carries an exact quotation with its page and section, and every decision records the checks that produced it.
 
-> **Status:** Phase P0 (foundation) is complete. Ingestion, retrieval, verification and evaluation are being built phase by phase. See [`PROGRESS.md`](PROGRESS.md) for what is done, what is blocked and what is next.
+> **Status:** Phase P0 (foundation) and the environment phase P0-ENV (CUDA, optional packages and pinned model artifacts) are complete, with limitations. Ingestion, retrieval, verification and evaluation are being built phase by phase. See [`PROGRESS.md`](PROGRESS.md) for what is done, what is blocked and what is next.
 
 ## Documents
 
 - [`docs/SPEC.md`](docs/SPEC.md): the engineering specification (requirements, hard constraints, phases, definition of done)
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): design, data contracts, dependency rationale, risks and limitations
 - [`PROGRESS.md`](PROGRESS.md): handoff file with phase status, blockers, decisions and exit criteria
+- [`docs/SETUP.md`](docs/SETUP.md): environment setup, the optional GPU and experimental groups, model artifacts and validation
 
 ## Quick start
 
@@ -23,7 +24,7 @@ python -m venv .venv
 .venv/Scripts/python.exe -m pytest -q
 ```
 
-The test suite generates its own synthetic PDFs. It does not need the owner's document.
+The baseline needs no GPU, no PyTorch and no model. The test suite generates its own synthetic PDFs. It does not need the owner's document. The optional CUDA and NLP groups are described in [`docs/SETUP.md`](docs/SETUP.md).
 
 ## Principles
 

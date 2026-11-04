@@ -1,5 +1,11 @@
-# VeritasQA runtime and test dependencies (pinned).
-# Install into a Python 3.11+ environment:  python -m pip install -r requirements.txt
+# VeritasQA baseline runtime and test dependencies (pinned).
+# Install into a Python 3.11+ virtual environment:  python -m pip install -r requirements.txt
+#
+# This file is the baseline. It installs and passes the test suite without PyTorch, NumPy,
+# spaCy, NLTK or any model. The optional groups are separate files (docs/SETUP.md):
+#   requirements-gpu.txt           PyTorch with CUDA, pinned by constraints-gpu.txt
+#   requirements-experimental.txt  NumPy, scikit-learn, spaCy, NLTK, rapidfuzz, sentence-transformers
+# No module of the baseline pipeline imports an optional group (SPEC §1, §4, §13).
 #
 # Why these and not others:
 # - pymupdf is pinned to 1.26.6 on purpose. PyMuPDF 2.x pulls in onnxruntime, numpy, networkx,
@@ -7,8 +13,6 @@
 #   no dependencies of its own.
 # - PyMuPDF is licensed AGPL-3.0 or commercially. Review that before distributing the project.
 # - No generative or hosted model dependency exists anywhere in this list (SPEC §1).
-# - Not included on purpose: numpy, scikit-learn, spaCy/NLTK, FastAPI, any vector database.
-#   Each is added only when a benchmark justifies it (SPEC §2.8, §13).
 pymupdf==1.26.6
 pdfplumber==0.11.10
 pydantic==2.14.2

@@ -111,7 +111,16 @@ Every write uses parameterized SQL. The FTS5 table is queried only through bound
 | pytest | `9.2.0` | Test runner | Dev dependency. |
 | sqlite3 (stdlib) | Python 3.12.10 bundles SQLite 3.49.1 | Persistence, FTS5, BM25 | Availability checked at startup. |
 
-Deliberately excluded for V1: numpy, scikit-learn (TF-IDF is an experiment only), spaCy/NLTK, FastAPI, any vector database, any LLM SDK. Each would need a benchmark or a concrete requirement before it is added (`SPEC §4`, `§13`).
+Excluded from the baseline: FastAPI, any vector database and any LLM SDK (`SPEC §1`, `§3C`, `§13`).
+
+P0-ENV (`docs/SETUP.md`) adds two optional groups to the same project venv. They are installed, validated and pinned. No baseline module imports them. Using either group in the pipeline still needs a benchmark (`SPEC §4`, `§9`, P9a).
+
+| Group | File | Contents |
+| --- | --- | --- |
+| GPU | `requirements-gpu.txt`, `constraints-gpu.txt` | PyTorch 2.14.1+cu130 (CUDA 13.0 wheel from the PyTorch index); no torchvision or torchaudio |
+| Experimental | `requirements-experimental.txt` | NumPy, scikit-learn (TF-IDF experiment), spaCy, NLTK, rapidfuzz, sentence-transformers |
+
+The P0 exclusion list above was this project's own decision, not an owner requirement. This revision follows the owner's specification: it recommends spaCy/NLTK (`SPEC §13`) and treats scikit-learn and embeddings as experiments (`SPEC §4`).
 
 **Tesseract OCR** is an external binary, not a Python dependency. The OCR adapter (P1) calls the `tesseract` CLI with an argument list (no shell) and works only when the binary is on PATH. On this machine it is **not installed** (see B2 in `PROGRESS.md`).
 
@@ -130,8 +139,10 @@ Deliberately excluded for V1: numpy, scikit-learn (TF-IDF is an experiment only)
 ```bash
 # from the repository root, using any Python 3.11+ interpreter
 python -m venv .venv
-.venv/Scripts/python.exe -m pip install -r requirements.txt   # Windows (Git Bash)
-.venv/Scripts/python.exe -m pytest -q                         # run the test suite
+.venv/Scripts/python.exe -m pip install -r requirements.txt   # baseline (Windows, Git Bash)
+.venv/Scripts/python.exe -m pytest -q                         # baseline test suite
 ```
+
+The optional GPU and experimental groups, the validation scripts and the model download steps are in [`docs/SETUP.md`](SETUP.md).
 
 The project venv used during development lives at `VeritasQA/` in the repository root. It is git-ignored and is not part of the project. The dependency pins in `requirements.txt` were validated in a clean venv (see `PROGRESS.md`, P0).

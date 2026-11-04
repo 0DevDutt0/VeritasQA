@@ -1,0 +1,4 @@
+# Constraint file: keeps the validated CUDA build of torch in place when other packages are installed.
+# Use it with any optional group installed after requirements-gpu.txt, for example:
+#   python -m pip install -c requirements.txt -c constraints-gpu.txt -r requirements-experimental.txt
+torch==2.14.1+cu130

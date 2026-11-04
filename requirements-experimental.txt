@@ -1,0 +1,18 @@
+# Experimental group (optional): NLP and retrieval packages for the benchmark phase (SPEC §4, §13).
+# Validated on Windows 11, CPython 3.12.10, with the torch build from requirements-gpu.txt.
+#
+# None of these packages is imported by the baseline pipeline. Each enters the pipeline only after
+# a benchmark on the development split justifies it (SPEC §4, §9; P9a).
+#
+# Install after requirements.txt and requirements-gpu.txt, keeping the baseline and torch pins:
+#   python -m pip install -c requirements.txt -c constraints-gpu.txt -r requirements-experimental.txt
+#
+# The constraint on torch matters: sentence-transformers depends on torch, and without the pin
+# pip could replace the CUDA build with a CPU wheel.
+numpy==2.5.4
+scikit-learn==1.9.1
+spacy==3.8.18
+nltk==3.10.4
+rapidfuzz==3.14.6
+sentence-transformers==6.2.0
+huggingface-hub==2.4.0

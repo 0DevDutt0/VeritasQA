@@ -1,0 +1,104 @@
+{
+  "schema": 1,
+  "name": "all-MiniLM-L6-v2",
+  "role": "embedding",
+  "purpose": "Compact sentence-embedding encoder for dense-retrieval experiments. Optional: it enters the pipeline only if the P9a benchmark shows a gain over the BM25 baseline (SPEC §4).",
+  "repo_id": "sentence-transformers/all-MiniLM-L6-v2",
+  "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+  "source_url": "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/tree/1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+  "license": "apache-2.0",
+  "pipeline_tag": "sentence-similarity",
+  "architectures": [
+    "BertModel"
+  ],
+  "model_type": "bert",
+  "generative": false,
+  "local_dir": "models/embeddings/all-MiniLM-L6-v2",
+  "expected_storage_bytes": 91578415,
+  "required_packages": {
+    "sentence-transformers": "6.2.0",
+    "transformers": "5.22.1",
+    "huggingface-hub": "2.4.0",
+    "safetensors": "0.8.0",
+    "torch": "2.14.1+cu130"
+  },
+  "not_downloaded_alternate_formats": [
+    ".gitattributes",
+    "data_config.json",
+    "onnx/model.onnx",
+    "onnx/model_O1.onnx",
+    "onnx/model_O2.onnx",
+    "onnx/model_O3.onnx",
+    "onnx/model_O4.onnx",
+    "onnx/model_qint8_arm64.onnx",
+    "onnx/model_qint8_avx512.onnx",
+    "onnx/model_qint8_avx512_vnni.onnx",
+    "onnx/model_quint8_avx2.onnx",
+    "openvino/openvino_model.bin",
+    "openvino/openvino_model.xml",
+    "openvino/openvino_model_qint8_quantized.bin",
+    "openvino/openvino_model_qint8_quantized.xml",
+    "pytorch_model.bin",
+    "rust_model.ot",
+    "tf_model.h5",
+    "train_script.py"
+  ],
+  "files": [
+    {
+      "path": "1_Pooling/config.json",
+      "size": 190,
+      "git_blob_sha1": "d1514c3162bbe87b343f565fadc62e6c06f04f03"
+    },
+    {
+      "path": "README.md",
+      "size": 10502,
+      "git_blob_sha1": "44af2e3b0fa3a0b6239e48422972bf755f28fde0"
+    },
+    {
+      "path": "config.json",
+      "size": 612,
+      "git_blob_sha1": "72b987fd805cfa2b58c4c8c952b274a11bfd5a00"
+    },
+    {
+      "path": "config_sentence_transformers.json",
+      "size": 116,
+      "git_blob_sha1": "fd1b291129c607e5d49799f87cb219b27f98acdf"
+    },
+    {
+      "path": "model.safetensors",
+      "size": 90868376,
+      "sha256": "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db"
+    },
+    {
+      "path": "modules.json",
+      "size": 349,
+      "git_blob_sha1": "952a9b81c0bfd99800fabf352f69c7ccd46c5e43"
+    },
+    {
+      "path": "sentence_bert_config.json",
+      "size": 53,
+      "git_blob_sha1": "59d594003bf59880a884c574bf88ef7555bb0202"
+    },
+    {
+      "path": "special_tokens_map.json",
+      "size": 112,
+      "git_blob_sha1": "e7b0375001f109a6b8873d756ad4f7bbb15fbaa5"
+    },
+    {
+      "path": "tokenizer.json",
+      "size": 466247,
+      "git_blob_sha1": "cb202bfe2e3c98645018a6d12f182a434c9d3e02"
+    },
+    {
+      "path": "tokenizer_config.json",
+      "size": 350,
+      "git_blob_sha1": "c79f2b6a0cea6f4b564fed1938984bace9d30ff0"
+    },
+    {
+      "path": "vocab.txt",
+      "size": 231508,
+      "git_blob_sha1": "fb140275c155a9c7c5a3b3e0e77a9e839594a938"
+    }
+  ],
+  "downloaded_utc": "2026-11-04T11:13:50+00:00"
+}

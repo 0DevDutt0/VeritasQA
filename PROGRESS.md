@@ -40,6 +40,7 @@ Say **"continue"**. Then work through the first phase below whose status is `not
 | Phase | Name | Status | Exit-criteria command |
 | --- | --- | --- | --- |
 | P0 | Repository foundation, plan and architecture | complete | `pytest -q tests/unit/test_p0_foundation.py` |
+| P0-ENV | Environment bootstrap: CUDA torch, optional packages, pinned model artifacts (inserted before P1; see D11) | complete-with-limitations | `pytest -q` (full suite), `scripts/validate_environment.py`, `scripts/validate_gpu.py`, `scripts/validate_models.py` |
 | P1 | PDF ingestion, extraction and page quality | not started | `pytest -q tests/unit/test_p1_*.py tests/integration/test_p1_*.py` |
 | P2 | Structure reconstruction, provenance and segmentation | not started | `pytest -q tests/unit/test_p2_*.py tests/integration/test_p2_*.py` |
 | P3 | SQLite schema, FTS5 and exact phrase retrieval | not started | `pytest -q tests/unit/test_p3_*.py tests/integration/test_p3_*.py` |
@@ -69,6 +70,7 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
 - **Q2.** The repository is public. Gold annotations quote the source PDF, which may be copyrighted. Should `data/evaluations/gold/` be committed (the current default) or kept local (git-ignored)?
 - **Q3.** Should Tesseract be installed for real OCR validation (see B2)?
 - **Q4.** PyMuPDF is AGPL-3.0 or commercially licensed (see `docs/ARCHITECTURE.md` §8). Is that acceptable for a public repository?
+- **Q5.** P0-ENV was run as an inserted environment phase, from the "Phase 0 execution instructions" supplied on 2026-11-04 (D11). Confirm that reading. Confirm also that the GPU and experimental groups and the two downloaded models stay in the project venv until a benchmark decides their use (D12, D13).
 
 ## Decisions log
 
@@ -84,6 +86,12 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
 | D8 | UTF-8 everywhere through `app/common/files.py`. LF newlines on output, enforced in the repository by `.gitattributes` (`* text=auto eol=lf`). | Windows defaults to cp1252 and to CRLF with `core.autocrlf`. |
 | D9 | No CI workflow yet. | Not requested. Can be added later as a separate phase task. |
 | D10 | Dependencies are pinned in `requirements.txt` and validated in a clean venv. | Reproducibility (`SPEC §13`). |
+| D11 | The "Phase 0 execution instructions" (2026-11-04) run as an inserted environment phase, **P0-ENV**, before P1. SPEC P0 stays complete. | Those instructions cover environment work the SPEC does not list. SPEC P0 is already done, and the instructions say not to start P1. |
+| D12 | Layering. `requirements.txt` is unchanged. GPU and experimental packages live in separate files, installed into the same venv. No pipeline module imports them. | SPEC §1 and §4 keep optional components out of the baseline until a benchmark justifies them. SPEC §13 recommends spaCy/NLTK, so they are validated, not wired in. |
+| D13 | Two models are downloaded and validated, not benchmarked, each pinned to a Hub commit: `sentence-transformers/all-MiniLM-L6-v2` (embedder) and `cross-encoder/ms-marco-MiniLM-L6-v2` (reranker). Adoption is gated on P9a. | The instructions name one embedder and one cross-encoder and require load and inference tests. SPEC §4 requires a benchmark before use. |
+| D14 | Downloads go to `models/.hf-home` and `models/nltk_data`. The user-level `HF_HOME` (`E:\Personal\AI-Models\huggingface`) is not written. | Every artifact stays in the project, where the ignore rules cover it. The shared cache is left alone. |
+| D15 | `VERITASQA_DEVICE` (`auto`, `cuda`, `cpu`) is read from the process environment only. Invalid values raise. `cuda` never falls back silently. | The instructions require an actionable error for explicit CUDA. Reading `.env` would add a dependency and a hidden configuration source. |
+| D16 | torch is pinned to `2.14.1+cu130`. torchvision and torchaudio are not installed. | The cu130 index tops out at 2.14.1, while PyPI lists 2.15.0 with a CPU-only Windows wheel. No code uses torchvision or torchaudio. |
 
 ---
 
@@ -111,6 +119,52 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
   - No document is processed yet (B1). No real PDF is available.
   - The FTS5 probe confirms the build supports FTS5. It does not measure retrieval quality.
   - Ingestion, storage and retrieval modules are not implemented yet, by design.
+
+### P0-ENV — Environment bootstrap, CUDA validation and pinned model artifacts (inserted before P1)
+
+- **Status:** complete-with-limitations
+- **Reading taken (D11):** the "Phase 0 execution instructions" of 2026-11-04 describe an environment phase. The SPEC's P0 (repository foundation) was already complete, so this phase is recorded as P0-ENV and run before P1. P1 is not started. Q5 asks the owner to confirm this reading.
+- **Branch:** `phase/p0-env-bootstrap`, fast-forward merged into `main`.
+- **SPEC pointers:** §1 (constraints), §4 (optional components, benchmark-gated), §9 (calibration), §13 (dependencies), §15 (behaviour)
+- **Done:**
+  - Inspected before changing anything. The venv was Python 3.12.10 with the P0 pins only, and `pip check` was clean. The baseline tests passed (7). Two `python` processes running `ai_update` belong to another tool and were left running. The pip cache held 17 GB. `HF_HOME` is `E:\Personal\AI-Models\huggingface`, which holds 389 model repos, and neither chosen model was among them. No stray `.whl`, `.incomplete` or interrupted-install files existed. PyPI, the PyTorch index, Hugging Face and GitHub were reachable.
+  - `.gitignore`: added `models/**` (with `models/README.md` and `models/manifests/**` re-included), the weight formats, `.env` and `.env.*` (with `.env.example` re-included), and `nltk_data/`. Confirmed with `git check-ignore` before any download.
+  - Installed `torch==2.14.1+cu130` into the project venv, after a dry run, with no torchvision or torchaudio.
+  - Installed the experimental group under `-c requirements.txt -c constraints-gpu.txt`: numpy 2.5.4, scikit-learn 1.9.1, spacy 3.8.18, nltk 3.10.4, rapidfuzz 3.14.6, sentence-transformers 6.2.0, huggingface-hub 2.4.0 (plus their dependencies). A freeze diff from before to after the installs shows only additions and no version changes.
+  - Downloaded the two models pinned to Hub commits. Every file was checked against the Hub's own digest, and manifests were written to `models/manifests/`. Fetched only the NLTK `punkt_tab` resource.
+  - Code: `app/common/device.py` (the `VERITASQA_DEVICE` resolver, the GPU report and a CUDA matmul smoke test), `app/common/models.py` (manifest checks, the non-generative check and the embedder and reranker smoke tests), and `scripts/download_models.py`, `validate_environment.py`, `validate_gpu.py`, `validate_models.py`. No module under the pipeline imports any of them.
+  - Tests: `tests/unit/test_p0env_device.py` (20), `tests/unit/test_p0env_manifests.py` (5), `tests/integration/test_p0env_gpu.py` (3), `tests/integration/test_p0env_models.py` (4), `tests/integration/test_p0env_nlp.py` (2). `tests/conftest.py` skips `requires_cuda` and `requires_models` tests with a stated reason. Both markers are registered in `pyproject.toml`.
+  - Files: `requirements-gpu.txt`, `constraints-gpu.txt`, `requirements-experimental.txt`, `requirements-validated.txt` (full lock, 82 packages), `.env.example`, `models/README.md`, `models/manifests/*.json`, `docs/SETUP.md`. Updated: the header of `requirements.txt` (the stale "not included on purpose" text is removed), `docs/ARCHITECTURE.md` §7 and §9, and `README.md`.
+- **Interfaces exposed:** `app.common.device.{ENV_VAR, DeviceConfigError, DeviceUnavailableError, CudaProbe, probe_cuda, resolve_device, gpu_report, cuda_matmul_smoke_test}`; `app.common.models.{sha256_file, git_blob_sha1, load_manifest, non_generative_problems, verify_manifest, smoke_test_embedder, smoke_test_reranker}`.
+- **Exit criteria:** `pytest -q` (full suite, including `tests/unit/test_p0env_*.py` and `tests/integration/test_p0env_*.py`), and `scripts/validate_environment.py`, `scripts/validate_gpu.py` and `scripts/validate_models.py` each exit 0.
+- **Result (recorded from runs):**
+  - Project venv, full suite: `41 passed in 7.08s`, 0 skipped.
+  - Clean baseline venv (`requirements.txt` only, no torch): `34 passed, 7 skipped in 0.31s`. The skips are the 3 GPU tests, 2 CUDA model tests (no PyTorch) and 2 NLP tests (no spaCy or NLTK).
+  - Fresh venv rebuilt from `requirements-validated.txt`: `41 passed in 13.89s`. Its freeze matches the lock exactly (82 packages), and the three validators each exit 0.
+  - `validate_environment.py`: `RESULT: baseline valid`. `validate_gpu.py`: `RESULT: GPU validated`. `validate_models.py`: `RESULT: all model checks passed`.
+  - Fresh-clone simulation (tracked files only, no weights, not a git repo, baseline venv): `32 passed, 9 skipped`, with no failures.
+- **Installed / Downloaded / Loaded / Validated:**
+
+| Item | Installed | Downloaded | Loaded | Validated |
+| --- | --- | --- | --- | --- |
+| torch 2.14.1+cu130 (CUDA 13.0) | yes | n/a (wheel) | CUDA device opened on NVIDIA GeForce RTX 5090 Laptop GPU (sm_120) | kernel check: float32 matmul on GPU vs CPU, relative error 9.64e-07 |
+| numpy, scikit-learn, rapidfuzz | yes | n/a | imports only | import only; no pipeline use yet |
+| spaCy 3.8.18 | yes | n/a | `spacy.blank("en")` with sentencizer | segmentation test passes |
+| NLTK 3.10.4 with `punkt_tab` | yes | yes: 77 files, 10,885,330 bytes, plus the 4,319,076-byte archive; digests not verified by this project | `sent_tokenize` runs | NLTK test passes |
+| sentence-transformers 6.2.0, transformers 5.22.1 | yes | n/a | used by both model tests | both model tests pass |
+| all-MiniLM-L6-v2 (embedder) | yes, under `models/` | yes: 11 files, 91,578,415 bytes, each file matched to the Hub digest | from the local path, Hub offline, `cuda:0` | output shape (3, 384), all finite, minimum cosine against CPU 1.000000 |
+| ms-marco-MiniLM-L6-v2 (reranker) | yes, under `models/` | yes: 7 files, 91,819,431 bytes, each file matched to the Hub digest | from the local path, Hub offline, `cuda:0` | output shape (2,), all finite, maximum score difference against CPU 2.86e-06 |
+| Tesseract OCR (B2) | no | no | no | not attempted; left as it was |
+
+- **Limitations:**
+  - Both models are validated for download, digest, non-generative architecture, loading and inference. Neither is benchmarked. Neither may enter the pipeline before P9a shows a gain over the BM25 baseline (SPEC §4, §9).
+  - The GPU is a laptop RTX 5090 with 24,463 MiB. All measurements were taken on this device.
+  - GPU memory is shared with an Ollama `llama-server` (PID 31904). At the same moment, `nvidia-smi` reported 5,768 MiB free and `torch.cuda.mem_get_info()` reported 23,119 MiB. The cause was not established. Every test allocation is under 0.5 GB, so the results do not depend on the choice.
+  - Not tested: training, mixed precision, multiple GPUs, and a second CUDA build for comparison.
+  - The NLTK resource is not checked against digests by this project.
+  - No Tesseract and no GPU OCR library were installed. B2 is unchanged.
+  - The optional groups are not used by any pipeline module, so their behaviour in the pipeline is unvalidated.
+- **Reproducibility:** `docs/SETUP.md` §3 and §6. The baseline was rebuilt from scratch in a clean venv. The whole validated environment, including the GPU and experimental groups, was rebuilt from scratch from `requirements-validated.txt`.
 
 ### P1 — PDF ingestion, extraction and page-level quality validation
 
