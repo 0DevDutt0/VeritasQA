@@ -45,6 +45,17 @@ class DocumentRecord(BaseModel):
     created_at: str
 
 
+class PageRow(BaseModel):
+    """One ``pages`` row: the status, the quality, the extraction method and the warning codes of one page (P10)."""
+
+    pdf_page: int
+    printed_page: str | None
+    status: str
+    quality_status: str
+    extraction_method: str
+    warnings: tuple[str, ...]
+
+
 @contextmanager
 def _write_transaction(conn: sqlite3.Connection) -> Iterator[None]:
     """One BEGIN IMMEDIATE transaction. Foreign keys are checked at COMMIT, because the unit links point both ways."""
@@ -174,6 +185,10 @@ class Store:
     def page_texts(self, document_id: str, pdf_pages: Iterable[int]) -> dict[int, str]:
         """The immutable raw text of each requested page. Quotations are slices of these strings."""
         return repository.read_page_texts(self._conn, document_id, pdf_pages)
+
+    def page_rows(self, document_id: str) -> list[PageRow]:
+        """The stored page rows of one document, in page order. Read only (ARCHITECTURE §19.2)."""
+        return [PageRow.model_validate(row) for row in repository.read_page_rows(self._conn, document_id)]
 
     def page_warning_codes(self, document_id: str, pdf_page: int) -> tuple[str, ...]:
         """The issue codes stored for one page, read from ``pages.warnings_json`` (P6, D62). Read only."""

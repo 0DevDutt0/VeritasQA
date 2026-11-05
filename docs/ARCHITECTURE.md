@@ -871,7 +871,7 @@ Implemented in `app/api` (`cli.py`, `__main__.py`). The package is an adapter. N
 
 **19.3 Output.** Standard output carries exactly one JSON object: UTF-8, sorted keys, no colour codes. Standard error carries nothing on success. On failure it carries one JSON object, `{"error": {"type": ..., "message": ...}}`, and the message names the cause (a missing store, an unknown document, the held-out flag and so on).
 
-**19.4 Exit codes.** `0`: the command completed. The result may be an abstention. `1`: a `VeritasQAError` or one of its subclasses. Usage errors use argparse's `2`. Other exceptions are not caught, so a bug shows a traceback.
+**19.4 Exit codes.** `0`: the command completed. The result may be an abstention. `1`: a `VeritasQAError` or one of its subclasses, or an `OSError` (a file that cannot be read or written). Usage errors use argparse's `2`. Any other exception is not caught, so a bug shows a traceback.
 
 **19.5 Guards.**
 - `ask`, `report` and `evaluate` refuse a store file that does not exist. `Store.open` would otherwise create an empty file and report nothing. Only `ingest` creates a store.

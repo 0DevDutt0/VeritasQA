@@ -445,6 +445,26 @@ def read_page_warning_codes(conn: sqlite3.Connection, document_id: str, pdf_page
     return tuple(str(issue["code"]) for issue in json.loads(row["warnings_json"]))
 
 
+def read_page_rows(conn: sqlite3.Connection, document_id: str) -> list[dict[str, Any]]:
+    """The ``pages`` rows of one document in page order, with the warning codes decoded (P10, ARCHITECTURE §19.2)."""
+    rows = conn.execute(
+        "SELECT pdf_page, printed_page, status, quality_status, extraction_method, warnings_json "
+        "FROM pages WHERE document_id = ? ORDER BY pdf_page",
+        (document_id,),
+    ).fetchall()
+    return [
+        {
+            "pdf_page": row["pdf_page"],
+            "printed_page": row["printed_page"],
+            "status": row["status"],
+            "quality_status": row["quality_status"],
+            "extraction_method": row["extraction_method"],
+            "warnings": tuple(str(issue["code"]) for issue in json.loads(row["warnings_json"])),
+        }
+        for row in rows
+    ]
+
+
 def read_page_extraction_method(conn: sqlite3.Connection, document_id: str, pdf_page: int) -> str:
     """The extraction method stored for one page (``pages.extraction_method``): native text, OCR or none (P7)."""
     row = conn.execute(
