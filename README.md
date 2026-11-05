@@ -7,9 +7,9 @@ VeritasQA is a document question-answering engine built on one rule: **no eviden
 - **Quotes, not paraphrases.** Every accepted answer comes with the exact sentence and its page, and with its section where the document has one.
 - **Refuses rather than guesses.** Every refusal has a status and a reason.
 - **Measured, not claimed.** Results are reported on public documents, with their limits. See [Results](#results).
-- **Tested.** 1,310 tests passed and 1 was skipped (it needs the optional Tesseract OCR program) in the last full run. See [Quick start](#quick-start).
+- **Tested.** 1,338 tests passed and 1 was skipped in the project environment (the skip needs the optional Tesseract OCR program). A fresh environment with only `requirements.txt` gave 1,306 passed and 6 skipped. See [Quick start](#quick-start).
 
-> **Status:** the core pipeline is built and tested. The command-line tool is in progress. The repository contains no private documents.
+> **Status:** the core pipeline and the command-line tool are built and tested. The repository contains no private documents.
 
 ## Example
 
@@ -83,12 +83,13 @@ The system is built to refuse rather than guess, and these results show that it 
 | Verification | `app/verification` | Re-checks each candidate: exact quotation, location, value, subject, negation, conditions, source quality and more. |
 | Decision | `app/decision`, `app/conflict` | Applies the acceptance rules, shows conflicts and chooses the status. |
 | Evaluation | `app/evaluation`, `app/benchmark` | Validates question sets, computes metrics, and runs parameter sweeps on development data only. |
+| Command line | `app/api` | Ingests a PDF, asks questions, lists stored documents and runs evaluations. Prints JSON. |
 
 ## Quick start
 
 <a id="quick-start"></a>
 
-Requires Python 3.11 or later, and a SQLite build with the FTS5 extension. No GPU, model download or API key is needed.
+Requires Python 3.11 or later (tested with 3.12 on Windows), and a SQLite build with the FTS5 extension. No GPU, model download or API key is needed.
 
 ```bash
 python -m venv .venv
@@ -96,9 +97,20 @@ python -m venv .venv
 .venv/Scripts/python.exe -m pytest -q
 ```
 
-The test suite creates its own synthetic PDFs. Some tests are skipped when an optional local document or the Tesseract OCR program is absent.
+The test suite creates its own synthetic PDFs. Some tests are skipped when an optional local document, the Tesseract OCR program or the optional TF-IDF packages (`requirements-experimental.txt`) are absent.
 
-Using the Python interface (the command-line tool is next):
+Command line, from the repository root. Each command prints one JSON object:
+
+```bash
+python -m app.api ingest my-document.pdf --store data/indexes/my-document.sqlite
+python -m app.api ask --store data/indexes/my-document.sqlite --document-id DOCUMENT_ID "How many days is the limit for loans?"
+python -m app.api report --store data/indexes/my-document.sqlite
+python -m app.api evaluate --store data/indexes/my-document.sqlite --document-id DOCUMENT_ID --gold my-questions.jsonl --split dev
+```
+
+`ingest` prints the `document_id` to use in the other commands; replace `DOCUMENT_ID` with it. `ingest` writes the extraction outputs under `data/extracted/`, and `evaluate` writes its run file under `data/evaluations/runs/`. The gold file has the format of `tests/fixtures/p8_synthetic_gold.jsonl`. A held-out evaluation needs `--split heldout --final-run`. A command that completes exits with 0, and an abstention is a completed result. An error exits with 1 and prints one JSON object on standard error. `python -m app.api --help` lists the options.
+
+Python interface:
 
 ```python
 from datetime import datetime, timezone
@@ -134,12 +146,10 @@ with Store.open(Path("data/indexes/my-document.sqlite")) as store:
 - **Scanned pages** need the optional Tesseract OCR program. That path is tested with a stub, not yet on a real scanned document.
 - **Tables.** Borderless tables are not detected. Table values come back as passages, not answers, and derived table rows are never quoted.
 - **Tuning.** The page-quality thresholds and the acceptance settings are not tuned yet. Tuning needs labelled questions from a real document.
-- **Scope of results.** The results describe four public documents only. Use across several documents is not yet tested end to end.
+- **Scope of results.** The results above describe four public documents only. Two documents in one store are tested with small synthetic PDFs, and no answer crosses between them.
 
 ## Roadmap
 
-- A command-line tool: ingest a PDF, ask questions, print reports and run evaluations, with JSON output.
-- Tests across two documents, to show that answers never mix documents.
 - Tuning, once labelled questions from a real document exist.
 - A licence (see below).
 
