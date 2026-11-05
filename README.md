@@ -154,7 +154,6 @@ with Store.open(Path("data/indexes/my-document.sqlite")) as store:
 ## Roadmap
 
 - Answer coverage. On the private document the system answered no question, so the next work is the answer types and the page-quality rules (reading order, tables and text inside images), followed by a new one-time test.
-- A licence (see below).
 
 ## Documents
 
@@ -165,4 +164,6 @@ with Store.open(Path("data/indexes/my-document.sqlite")) as store:
 
 ## Licence
 
-No licence has been chosen yet. The PDF library the project uses, PyMuPDF, is licensed under AGPL-3.0 or sold under a commercial licence, so the choice needs care. Until a licence is added, the code is visible but reuse is not granted.
+The code is licensed under the MIT licence (see [LICENSE](LICENSE)). Anyone may use, copy, modify, publish and share it, provided the copyright notice stays with it.
+
+The project uses PyMuPDF, which is licensed under AGPL-3.0 or sold under a commercial licence. The MIT licence does not change those terms. If you distribute a program that includes PyMuPDF, or offer one over a network, read the AGPL-3.0 terms or buy a commercial PyMuPDF licence. This is not legal advice.
