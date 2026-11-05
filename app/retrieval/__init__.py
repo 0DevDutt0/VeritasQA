@@ -11,6 +11,7 @@ from app.retrieval.bm25 import (
 )
 from app.retrieval.config import RetrievalConfig, load_retrieval_config
 from app.retrieval.errors import RetrievalConfigError, RuleConfigError
+from app.retrieval.forms import all_forms, find_word, span_matches_word, word_forms
 from app.retrieval.phrase import find_phrase, fold_case, span_matches
 from app.retrieval.query import PhraseQuery, build_phrase_query
 from app.retrieval.rules import AppliedRule, Rule, RuleExample, RuleSet, expand_words, load_rules
@@ -33,13 +34,17 @@ __all__ = [
     "RuleSet",
     "Term",
     "TermKind",
+    "all_forms",
     "build_phrase_query",
     "expand_words",
     "extract_terms",
     "find_phrase",
+    "find_word",
     "fold_case",
     "load_retrieval_config",
     "load_rules",
     "search",
     "span_matches",
+    "span_matches_word",
+    "word_forms",
 ]

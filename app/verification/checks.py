@@ -17,6 +17,7 @@ from app.evidence.selection import AnswerCandidate
 from app.evidence.values import Value, ValueKind, find_values
 from app.ingestion.models import QualityStatus
 from app.question_processing.analysis import QuestionComponent, QuestionType
+from app.retrieval.forms import span_matches_word
 from app.retrieval.phrase import build_phrase_query, span_matches
 from app.retrieval.terms import Term
 from app.storage import Store
@@ -205,7 +206,7 @@ def check_answer_span(claim: Claim) -> CheckResult:
 
 
 def check_entity(claim: Claim) -> CheckResult:
-    """SPEC §7 check 4. Every target word of the question occurs in the quote, by P3's exact check (D33)."""
+    """SPEC §7 check 4. Every target word, or a word form (P13, D131), occurs in the quote (P3's exact check, D33)."""
     name = CheckName.ENTITY
     if claim.candidate.expansion_only:
         return _result(
@@ -217,7 +218,7 @@ def check_entity(claim: Claim) -> CheckResult:
     if not targets:
         return _result(name, CheckStatus.UNRESOLVED, "the question has no target word")
     quote = claim.candidate.quote
-    missing = [word for word in targets if not span_matches(quote, build_phrase_query(word))]
+    missing = [word for word in targets if not span_matches_word(quote, word)]
     if missing:
         words = ", ".join(missing)
         return _result(name, CheckStatus.FAIL, f"the passage does not contain the question's word(s): {words}")

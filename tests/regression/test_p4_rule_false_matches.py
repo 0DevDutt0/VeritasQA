@@ -1,9 +1,10 @@
 """P4 regression set for synonym and stemming rules: known ways a rule could add a false candidate.
 
 A rule adds candidates only, and no check may accept an expansion-only candidate as support (D38). These cases
-guard the recall path: a rule must not reach a word that merely contains a listed word, or a word whose form is
-not listed. The rules are the synthetic fixture ``tests/fixtures/retrieval_rules_test.toml``. Each case has a
-name, so that a future false match can be added beside it (SPEC §12).
+guard the recall path: a rule must not reach a word that merely contains a listed word. A plural of a query word is
+not a rule match: word forms reach it as an original hit (P13, D131). The rules are the synthetic fixture
+``tests/fixtures/retrieval_rules_test.toml``. Each case has a name, so that a future false match can be added
+beside it (SPEC §12).
 """
 
 from __future__ import annotations
@@ -22,10 +23,10 @@ DOC = "doc-" + "9" * 16
 CREATED = "2026-01-01T00:00:00Z"
 
 DISCHARGE = "The discharge applies to each visit."  # contains "charge", as the end of a longer word
-FEES = "The fees are listed for the public."  # a plural that the rule does not list
+FEES = "The fees are listed for the public."  # a plural of "fee": an original hit under word forms (P13)
 REREAD = "The rerun is scheduled for the day."  # contains "run" as the end of a longer word
 SURCHARGE = "A surcharge is never listed as an alternative."
-CONFUSABLES = frozenset({DISCHARGE, FEES, REREAD, SURCHARGE})
+CONFUSABLES = frozenset({DISCHARGE, REREAD, SURCHARGE})
 
 
 @pytest.fixture(scope="module")
@@ -63,9 +64,13 @@ def test_a_word_that_ends_in_a_listed_alternative_is_not_reached(store, rules):
     assert DISCHARGE not in _reached_texts(store, result)
 
 
-def test_an_unlisted_plural_is_not_reached(store, rules):
+def test_a_plural_of_a_query_word_is_an_original_hit_not_an_expansion(store, rules):
+    # P13 (D131): "fees" is a form of "fee", so word forms reach it as an original hit. No rule is needed for it.
     result = search(store, DOC, "fee", rules=rules, context_window=0)
-    assert FEES not in _reached_texts(store, result)
+    ids = [candidate.evidence_id for candidate in result.candidates]
+    summaries = store.unit_summaries(DOC, ids)
+    found = {summaries[candidate.evidence_id].raw_text: candidate for candidate in result.candidates}
+    assert found[FEES].via == "original" and not found[FEES].expansion_only
 
 
 def test_a_listed_stemming_form_is_reached_and_its_longer_neighbour_is_not(store, rules):

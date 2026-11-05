@@ -21,6 +21,7 @@ from app.evidence.segment import sentence_spans
 from app.evidence.values import Value, ValueKind, find_values
 from app.question_processing.analysis import QuestionAnalysis, QuestionComponent, QuestionType
 from app.retrieval.bm25 import RetrievalCandidate, RetrievalResult
+from app.retrieval.forms import span_matches_word
 from app.retrieval.phrase import build_phrase_query, span_matches
 
 REPLACEMENT_CHARACTER = "\ufffd"
@@ -272,7 +273,6 @@ def _select_for_component(
     retrieved: Sequence[RetrievalCandidate],
     units: Mapping[str, EvidenceUnit],
 ) -> tuple[list[AnswerCandidate], list[DroppedCandidate], _Counts]:
-    target_queries = [(term, build_phrase_query(term)) for term in component.target_terms]
     count_nouns = component.target_terms
     question_type = component.question_type
     candidates: list[AnswerCandidate] = []
@@ -297,7 +297,7 @@ def _select_for_component(
         crossed = False
         for start, end, granularity in pieces:
             text = raw[start:end]
-            if not all(span_matches(text, query) for _, query in target_queries):
+            if not all(span_matches_word(text, term) for term in component.target_terms):
                 continue
             counts.with_targets += 1
             values = _values_of(text, count_nouns)

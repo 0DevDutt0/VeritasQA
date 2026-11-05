@@ -64,7 +64,8 @@ def test_an_alternative_hit_is_an_expansion_only_candidate_with_its_rule_id(stor
     assert by_id[original].rank < by_id[expansion].rank, "original hits come before expansion-only hits"
     fees = _id(structure, "The fees are listed")
     discharge = _id(structure, "The discharge applies")
-    assert fees not in by_id and discharge not in by_id
+    assert by_id[fees].via == "original" and not by_id[fees].expansion_only, "a plural is an original hit (P13)"
+    assert discharge not in by_id
 
 
 def test_each_applied_alternative_is_logged_with_its_rule_and_version(store_and_structure, rules):
@@ -123,12 +124,14 @@ def test_a_multi_word_term_needs_its_words_to_be_adjacent(store_and_structure, r
     assert hazard not in {candidate.evidence_id for candidate in apart.candidates}
 
 
-def test_a_stemming_form_is_found_and_a_similar_word_is_not(store_and_structure, rules):
+def test_a_word_form_is_an_original_hit_and_a_similar_word_is_not(store_and_structure, rules):
+    # P13 (D131): "running" is a form of "run", so it is an original hit and the listed stemming rule adds nothing for
+    # it. The expansion-only path is tested above with "fee" and "charge", which no word form produces.
     store, structure = store_and_structure
     result = search(store, DOC, "run", rules=rules, context_window=0)
     running = _id(structure, "The team is running")
     found = {candidate.evidence_id: candidate for candidate in result.candidates}
-    assert found[running].expansion_only and found[running].rule_ids == ("test-run-forms",)
+    assert found[running].via == "original" and not found[running].expansion_only
     assert _id(structure, "The rerun is scheduled") not in found
 
 

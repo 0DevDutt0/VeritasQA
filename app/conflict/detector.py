@@ -31,7 +31,7 @@ from app.question_processing.vocabulary import (
     PRONOUNS,
     QUESTION_WORDS,
 )
-from app.retrieval.phrase import build_phrase_query, find_phrase, span_matches
+from app.retrieval.forms import find_word, span_matches_word, word_forms
 from app.storage import Store
 from app.verification.vocabulary import ANSWER_TYPES
 
@@ -155,12 +155,12 @@ def scope_words(
     values: tuple[Value, ...],
     markers: tuple[Marker, ...],
 ) -> frozenset[str]:
-    """The qualifying words of a piece: its words minus the target words, the value and marker words, and the reviewed
+    """The qualifying words of a piece: its words minus the target words and their word forms (P13), the value and marker words, and the reviewed
     function, question, attribute, negation and pronoun words. Two pieces with different qualifying words may apply to
     different cases. The result only chooses a label (ARCHITECTURE §16.3)."""
     known = set(FUNCTION_WORDS | QUESTION_WORDS | ATTRIBUTE_WORDS | ATTRIBUTE_PLURALS | NEGATION_WORDS | PRONOUNS)
     for term in target_terms:
-        known.update(_words(term))
+        known.update(form for word in _words(term) for form in word_forms(word))
     for value in values:
         known.update(_words(value.text))
     for marker in markers:
@@ -210,10 +210,10 @@ def _piece(
 
 
 def _units_with_every_word(store: Store, document_id: str, terms: tuple[str, ...]) -> list[EvidenceUnit]:
-    """Units that contain every term under the exact check (P3). One exact search per term, intersected by unit."""
+    """Units that contain every term, or one of its word forms (P3, D131). One search per term, intersected by unit."""
     found: dict[str, EvidenceUnit] | None = None
     for term in terms:
-        hits = {unit.evidence_id: unit for unit in find_phrase(store, document_id, term)}
+        hits = {unit.evidence_id: unit for unit in find_word(store, document_id, term)}
         found = hits if found is None else {key: unit for key, unit in found.items() if key in hits}
         if not found:
             return []
@@ -315,13 +315,12 @@ def screen_component(
     """
     if component.question_type not in ANSWER_TYPES or not component.searchable or not component.target_terms:
         return _empty_screen(component)
-    queries = [build_phrase_query(term) for term in component.target_terms]
     units = _units_with_every_word(store, document_id, component.target_terms)
     pieces: list[Piece] = []
     for unit in units:
         for start, end in _pieces_of(unit):
             text = unit.raw_text[start:end]
-            if all(span_matches(text, query) for query in queries):
+            if all(span_matches_word(text, term) for term in component.target_terms):
                 pieces.append(_piece(unit, start, end, component, config))
     relations, agreeing = compare_pieces(pieces)
     counts = ScreenCounts(

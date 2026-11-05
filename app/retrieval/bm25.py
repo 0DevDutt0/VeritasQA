@@ -15,6 +15,7 @@ from typing import Literal
 from app.common.errors import StorageError
 from app.common.text import normalize_text
 from app.retrieval.config import RetrievalConfig, load_retrieval_config
+from app.retrieval.forms import all_forms
 from app.retrieval.phrase import fold_case, span_matches
 from app.retrieval.query import build_phrase_query
 from app.retrieval.rules import AppliedRule, RuleSet, expand_words, folded_words, load_rules
@@ -221,7 +222,8 @@ def search(
         alternatives.setdefault(key, item.alternative)
         rules_for_alternative.setdefault(key, set()).add(item.rule_id)
 
-    original_match = " OR ".join(_quote(word) for word in original_words)
+    # Each query word and its word forms (P13, D131) are original hits. A rule never adds them.
+    original_match = " OR ".join(_quote(form) for form in all_forms(original_words))
     column_pair = (column.index_text, column.heading_text)
 
     with store.document_bm25_index(document_id) as index:
