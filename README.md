@@ -63,6 +63,8 @@ Measured once, on 74 development questions from four public NIST documents, with
 
 Answers are scored by exact text, so a correct fact in different words counts as wrong. That is a deliberate choice.
 
+One private document, which is not published here, was measured the same way. The retrieval settings were swept on 32 development questions, and no setting gave an answer, so the defaults were kept. The 14 held-out questions were then run once. The system gave no answer to any of them, made no wrong answer, and correctly refused the one question the document does not answer. The questions were drafted by an assistant and partly checked, so this is not a claim of accuracy. The main limit is coverage: the system refuses most answerable questions.
+
 The system is built to refuse rather than guess, and these results show that it refuses far too often. By design, it gives an answer only for numbers with units, percentages, money amounts, dates and periods, and permission or prohibition wording. Questions that begin with *what*, *who*, *where* or *which* return the matching passages without an answer. The acceptance rules are not tuned yet, because tuning needs labelled questions from a real document. Answering more often without giving wrong answers is the main open problem.
 
 ## Why no language model?
@@ -146,12 +148,12 @@ with Store.open(Path("data/indexes/my-document.sqlite")) as store:
 - **Scanned pages** need the optional Tesseract OCR program. That path is tested with a stub, not yet on a real scanned document.
 - **Images and screenshots** are not read. A page that could not be verified is named in the answer's warnings, and nothing on it is accepted as evidence.
 - **Tables.** Borderless tables are not detected. Table values come back as passages, not answers, and derived table rows are never quoted.
-- **Tuning.** The page-quality thresholds and the acceptance settings are not tuned yet. Tuning needs labelled questions from a real document.
+- **Tuning.** The page-quality thresholds and the acceptance settings are not tuned. On the private document, sweeping the retrieval settings changed nothing, so the defaults were kept.
 - **Scope of results.** The results above describe four public documents only. Two documents in one store are tested with small synthetic PDFs, and no answer crosses between them.
 
 ## Roadmap
 
-- Tuning, once labelled questions from a real document exist.
+- Answer coverage. On the private document the system answered no question, so the next work is the answer types and the page-quality rules (reading order, tables and text inside images), followed by a new one-time test.
 - A licence (see below).
 
 ## Documents
