@@ -7,7 +7,7 @@ VeritasQA is a document question-answering engine built on one rule: **no eviden
 - **Quotes, not paraphrases.** Every accepted answer comes with the exact sentence and its page, and with its section where the document has one.
 - **Refuses rather than guesses.** Every refusal has a status and a reason.
 - **Measured, not claimed.** Results are reported on public documents, with their limits. See [Results](#results).
-- **Tested.** 1,338 tests passed and 1 was skipped in the project environment (the skip needs the optional Tesseract OCR program). A fresh environment with only `requirements.txt` gave 1,306 passed and 6 skipped. See [Quick start](#quick-start).
+- **Tested.** 1,341 tests passed and 1 was skipped in the project environment (the skip needs the optional Tesseract OCR program). A fresh environment with only `requirements.txt` gave 1,306 passed and 6 skipped (measured before three tests were added; not re-run). See [Quick start](#quick-start).
 
 > **Status:** the core pipeline and the command-line tool are built and tested. The repository contains no private documents.
 
@@ -144,6 +144,7 @@ with Store.open(Path("data/indexes/my-document.sqlite")) as store:
 - **Answer types.** Only numbers with units, percentages, money amounts, dates and periods, and permission or prohibition wording get an answer span. Other questions return passages.
 - **Matching is lexical.** Paraphrases are often missed. Synonym rules are supported, but none has been approved yet.
 - **Scanned pages** need the optional Tesseract OCR program. That path is tested with a stub, not yet on a real scanned document.
+- **Images and screenshots** are not read. A page that could not be verified is named in the answer's warnings, and nothing on it is accepted as evidence.
 - **Tables.** Borderless tables are not detected. Table values come back as passages, not answers, and derived table rows are never quoted.
 - **Tuning.** The page-quality thresholds and the acceptance settings are not tuned yet. Tuning needs labelled questions from a real document.
 - **Scope of results.** The results above describe four public documents only. Two documents in one store are tested with small synthetic PDFs, and no answer crosses between them.

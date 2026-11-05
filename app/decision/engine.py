@@ -7,6 +7,7 @@ without supported evidence returns a status and the passages that were examined.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from app.conflict import ConflictConfig, load_conflict_config
@@ -40,6 +41,7 @@ from app.retrieval.bm25 import RetrievalResult, search
 from app.retrieval.config import RetrievalConfig, load_retrieval_config
 from app.retrieval.rules import RuleSet
 from app.storage import Store
+from app.storage.store import PageRow
 from app.verification import CheckName, CheckStatus, VerificationReport, verify
 from app.verification.vocabulary import ANSWER_TYPES
 
@@ -185,7 +187,31 @@ def answer(
         )
         screen = screen_component(store, document_id, component, active_conflicts)
         decided.append(_decide(component, component_selection, judgements, screen))
-    return _respond(analysis, decided, retrieved, units, store, document_id, active_policy)
+    response = _respond(analysis, decided, retrieved, units, store, document_id, active_policy)
+    notice = _unread_page_notice(store.page_rows(document_id))
+    if notice is None:
+        return response
+    return response.model_copy(update={"warnings": response.warnings + (notice,)})
+
+
+def _unread_page_notice(rows: Sequence[PageRow]) -> str | None:
+    """A warning that names every page whose text could not be fully read, or ``None`` when every page is readable.
+
+    An unread page has quality ``unverified``: its stored text may be incomplete, and its images are not read. Nothing on
+    such a page is accepted as evidence (SOURCE_UNVERIFIED). The status and the answer spans do not change (D123).
+    """
+    unread = [row.pdf_page for row in rows if row.quality_status == QualityStatus.UNVERIFIED.value]
+    if not unread:
+        return None
+    pages = ", ".join(str(page) for page in unread)
+    if len(unread) == 1:
+        subject, pronoun = f"Page {pages}", "it"
+    else:
+        subject, pronoun = f"Pages {pages}", "them"
+    return (
+        f"{subject} could not be fully read: the stored text may be incomplete, and images on {pronoun} are not read. "
+        f"Nothing on {pronoun} is accepted as evidence."
+    )
 
 
 def _retrieve(
