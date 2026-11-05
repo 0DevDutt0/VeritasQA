@@ -720,6 +720,8 @@ Implemented in `app/evaluation` (`errors.py`, `text.py`, `gold.py`, `scoring.py`
 
 A record is **answerable** when `expected_status` is `ANSWERED` or `PARTIAL`. Otherwise it is **unanswerable**. A component index is **expected answerable** when the record is answerable and the record has gold evidence for that index.
 
+**Passage-only types (D88).** A question of a type that the system never answers by design (`what`, `who`, `where`, `which`, `conditions`, `comparison`) is labelled answerable when the document answers it. Its gold record has evidence and no answer spans, because these types return passages and not spans. The harness scores the design abstention as an incorrect abstention, and §17.10 shows it by question type.
+
 **17.3 Validation, layer 1: the file alone (D77).** `GoldRecord` refuses: an answer on an unanswerable record; an answerable record with no evidence; an answer whose normalized text does not occur in a normalized evidence quote of the same component; a duplicate `record_id`; a line that is not valid JSON (the error names the line); an empty file.
 
 **17.4 Validation, layer 2: the stored document (D76, D77).** `check_against_store(record, store, document_id)` refuses: a page that is not in the document; a quote that does not occur verbatim (17.1) in the stored raw text of its page; a component index above the number of components that `analyze(question)` returns; for `ANSWERED`, a component with no gold evidence; for `PARTIAL`, no component with gold evidence, or no component without it. It raises `GoldError`, naming the record and the reason. Inexact quotations are refused here, not in layer 1. The check runs for every selected record before the first `answer()` call.
