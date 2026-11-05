@@ -44,6 +44,10 @@ CONFIDENCE_LEVEL = 0.95
 RUN_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}")
 SYNTHETIC_BANNER = "Synthetic test set. This is not a measurement of the owner's document."
 STAND_IN_BANNER = "Public stand-in test set, written by the assistant. This is not a measurement of the owner's document."
+OWNER_DOCUMENT_BANNER = (
+    "This is a measurement of the owner's document. Read the annotators field: "
+    "a record annotated by the assistant has not been checked by the owner."
+)
 LIMITATIONS = (
     "A rate with a small n has a wide interval. Read n next to every rate.",
     "Means (MRR, nDCG and token F1) carry n and no interval in this phase.",
@@ -59,6 +63,8 @@ def banner_for(source: Source) -> str | None:
         return SYNTHETIC_BANNER
     if source is Source.PUBLIC_DOCUMENT:
         return STAND_IN_BANNER
+    if source is Source.OWNER_DOCUMENT:
+        return OWNER_DOCUMENT_BANNER
     return None
 
 
@@ -291,6 +297,7 @@ def run_evaluation(
         "public_document": source is Source.PUBLIC_DOCUMENT,
         "banner": banner_for(source),
         "dataset": {"file": dataset.file_name, "sha256": dataset.sha256, "record_count": len(records)},
+        "annotators": sorted({record.annotator for record in records}),
         "config": config,
         "metrics": metrics,
         "records": rows,

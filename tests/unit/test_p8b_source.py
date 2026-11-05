@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from app.evaluation.errors import EvaluationError
 from app.evaluation.gold import GoldDataset, GoldRecord, Source, select_split
-from app.evaluation.runner import STAND_IN_BANNER, SYNTHETIC_BANNER, banner_for
+from app.evaluation.runner import OWNER_DOCUMENT_BANNER, STAND_IN_BANNER, SYNTHETIC_BANNER, banner_for
 
 
 def _record(record_id: str, source: str, split: str = "dev") -> GoldRecord:
@@ -57,7 +57,8 @@ def test_a_run_refuses_to_mix_public_and_synthetic_records() -> None:
 def test_each_source_gets_its_own_banner() -> None:
     assert banner_for(Source.SYNTHETIC) == SYNTHETIC_BANNER
     assert banner_for(Source.PUBLIC_DOCUMENT) == STAND_IN_BANNER
-    assert banner_for(Source.OWNER_DOCUMENT) is None
+    # P10 (D115): an owner-document run now carries its own banner, which names the annotators field.
+    assert banner_for(Source.OWNER_DOCUMENT) == OWNER_DOCUMENT_BANNER
 
 
 def test_the_stand_in_banner_says_who_wrote_it_and_what_it_is_not() -> None:
