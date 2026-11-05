@@ -171,7 +171,7 @@ def _page(pages: Mapping[int, str], pdf_page: int) -> str:
     return pages[pdf_page]
 
 
-def _measure(
+def measure_retrieval(
     index: int,
     retrieval: ObservedRetrieval,
     gold_quotes: Sequence[str],
@@ -273,7 +273,7 @@ def score_record(
             default=None,
         )
         if gold_quotes:
-            measures.append(_measure(index, retrieval, gold_quotes, gold_pages, units))
+            measures.append(measure_retrieval(index, retrieval, gold_quotes, gold_pages, units))
         components.append(
             ComponentScore(
                 index=index,
@@ -390,8 +390,11 @@ def _component_block(scores: Sequence[RecordScore]) -> dict[str, object]:
     }
 
 
-def _retrieval_block(scores: Sequence[RecordScore]) -> dict[str, object]:
-    measures = [measure for score in scores for measure in score.retrieval]
+def retrieval_summary(measures: Sequence[RetrievalMeasure]) -> dict[str, object]:
+    """The retrieval block of a run, from its measures (ARCHITECTURE §17.7). The benchmark baselines use it too (§18.5).
+
+    A depth that no measure searched has n = 0 and value None. It is never reported as 0 (ARCHITECTURE §17.9).
+    """
     block: dict[str, object] = {
         "measures": len(measures),
         "mrr": mean_of([reciprocal_rank(measure.hits) for measure in measures]).as_dict(),
@@ -404,6 +407,10 @@ def _retrieval_block(scores: Sequence[RecordScore]) -> dict[str, object]:
             [ndcg_at_k(measure.credits, len(measure.first_ranks), k) for measure in eligible]
         ).as_dict()
     return block
+
+
+def _retrieval_block(scores: Sequence[RecordScore]) -> dict[str, object]:
+    return retrieval_summary([measure for score in scores for measure in score.retrieval])
 
 
 def _evidence_block(scores: Sequence[RecordScore]) -> dict[str, object]:

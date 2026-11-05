@@ -98,7 +98,7 @@ These contracts are fixed now so that later phases can rely on them.
 - The FTS5 `unicode61` tokenizer splits `3.5` into `3` and `5`. Phrase search therefore uses FTS5 for candidates and then a deterministic substring check on normalized text. Numbers, units and dates are checked again in verification (P6).
 - Heading text sits in a separate FTS5 column so its weight can be tuned (P4, §13).
 - **BM25 statistics are per document (P4, D39).** `bm25()` runs on an index built from one document's body units (§13). Adding a second document to the store therefore leaves the first document's scores and ranking unchanged, as §1A requires.
-- Reciprocal Rank Fusion is not implemented. It is added only if a measured benchmark shows a gain (`SPEC §4`).
+- Reciprocal Rank Fusion is not in the answer path. It is measured as a benchmark-only baseline (§18.5, P9a). It is added to the answer path only if a measured benchmark on the owner's development split shows a gain (`SPEC §4`).
 - Candidate depth K is configurable. Recall is measured at several K values; top-3 is never assumed sufficient.
 - **Controlled synonym and stemming rules (P4, D17, D38, D43).** Recall only. The rules live in `config/retrieval_rules.toml`, with the format and the expansion rules in §13. Each rule has an ID, a version, positive examples, counter-examples and a reviewer note. Expansion is query-time and one-way: a query term may add listed alternatives, and the index is never rewritten. Each expansion is recorded in the retrieval trace with its rule ID. Expanded matches only add candidates, and they are marked `expansion_only`. The entity, value, negation and condition checks (§5) run on raw text and cannot be satisfied by an expansion alone. No rule is approved in V1 (D43).
 - **No stemming in the index for V1.** SQLite's FTS5 `porter` tokenizer exists in this build (SQLite 3.49.1): with it, the query `run` matches `running`. The tokenizer is fixed per FTS table, so it cannot be switched per query, and a stemmed index would need a second FTS table. It is not used unless the P4 regression set shows a need.
@@ -807,3 +807,42 @@ Each discovered false answer still gets its own regression module (SPEC §12).
 - The extraction measures of SPEC §11 (page extraction success, reading-order failures, table-structure accuracy, OCR error review) are not computed in P8a. Their meaning depends on the owner's document, so they belong with the real-data phase, P8b.
 - Intervals are Wilson intervals only. No bootstrap is used.
 - The guard records the file's SHA-256 and refuses wrong calls. It cannot stop a person from changing the configuration and running again.
+
+## 18. Benchmark and sweep contracts (P9a)
+
+Implemented in `app/benchmark` (`errors.py`, `grid.py`, `sweep.py`, `baselines.py`). The package is benchmark-only. No module under `app/decision`, `app/retrieval`, `app/evidence`, `app/verification`, `app/conflict` or `app/evaluation` imports it, and its TF-IDF and RRF arms stay outside the answer path (§4, §1A). The store schema does not change. Each sweep point writes one row to the `evaluations` table through `run_evaluation` (§17.12). The sweep summary is a separate JSON file. Two functions in `app/evaluation/scoring.py` become public so that the baselines share them: `measure_retrieval` (was `_measure`) and `retrieval_summary` (was the body of `_retrieval_block`). Their results do not change (D98).
+
+**18.1 Split (D90).** `run_sweep` runs every point through `run_evaluation` with `"dev"` and `final_run=False`. It accepts no other split and never passes `final_run=True`. A test shows that held-out questions never reach `answer()`.
+
+**18.2 Grid (D91).** `SweepGrid` is frozen and refuses extra fields. It holds three tuples of unique values:
+- `k_values`: integers of at least 1, default (1, 5, 10, 50);
+- `context_windows`: integers of at least 0, default (0, 1, 2);
+- `heading_weights`: numbers above 0, default (1.0, 2.0, 4.0).
+
+The grid has 36 points, numbered 1 to 36 in the order k, then window, then heading weight. Each point is a `RetrievalConfig` built from the values in `config/retrieval.toml` with the three values of the point replaced. It is constructed, so it is validated; `model_copy` is not used. `expansion_k` and `weight_index` keep their configured values.
+
+**18.3 Run ids and up-front refusal (D92).** The sweep id must pass the run-id rule of §17.12 and be at most 60 characters. The run id of point `n` is `<sweep id>-<NN>`, where NN is the two-digit point number (01 to 99, and the default grid uses 01 to 36). It must pass the same rule. Before the first `answer()` call, the sweep checks every point and the summary: the run id is valid; no `<run id>.json` and no `<sweep id>-summary.json` exists in `output_dir`; and the store holds no evaluation with that run id. Any failure raises `BenchmarkError` before anything is written. If `run_evaluation` fails later in the sweep, the rows and files of the points already done remain, the summary is not written, and the error is raised.
+
+**18.4 Summary file (D93).** `<output_dir>/<sweep id>-summary.json`, with sorted keys and LF line endings. It holds:
+- `sweep_id`, `created_at`, `engine_version`, `split` (`dev`), `source`, `synthetic` and the synthetic banner;
+- the dataset (file name, SHA-256, total and development record counts) and the grid;
+- one entry per point: `index`, `run_id`, `k`, `context_window`, `heading_weight`, the outcome counts, the question rates of §17.9 with n and interval, and the MRR and the recall at depths 1, 5, 10 and 50. A depth the point did not search is `None` (§17.7), never 0;
+- `distinct_results`: the number of different results over the points;
+- `tie_groups`: the lists of point indices whose results are equal (the outcome counts, the rates and the listed retrieval values, all with their n), in grid order;
+- `baselines` (§18.5) and `limitations`.
+
+The summary orders no point by quality and names no best or recommended point.
+
+**18.5 Baselines (D94, D95, D96).** The baselines use the development records only, and only components with gold evidence (§17.7). Each arm receives the component's `retrieval_query`, the exact text that the decision engine passes to `search()`. A component that the engine cannot search (`searchable` is false) is left out. Each arm ranks the same units, the body units with `body_retrieval = 1`, to depth 50 (`BASELINE_DEPTH`).
+- `bm25`: `search()` with the configured weights and `k = 50`, `expansion_k = 0` and no rule expansion. Its candidate order is the ranking.
+- `tfidf`: a scikit-learn `TfidfVectorizer` fitted per document on the `index_text` of the body units (not the heading text). The token pattern is `[^\W_]+` (Unicode letters and digits), with `strip_accents="unicode"`, lower-case folding, `norm="l2"`, `smooth_idf=True` and `sublinear_tf=False`. Units with a positive score are ranked by score, highest first, then by evidence ID.
+- `rrf`: Reciprocal Rank Fusion of the `bm25` and `tfidf` lists, with score = the sum of 1 / (60 + rank) over the lists that contain the unit. Ties go to the lower evidence ID. The constant 60 is fixed, recorded in the summary and not tuned.
+
+Each arm drops duplicates in rank order, by the SHA-256 of `normalize_text(raw_text)` (§13). Each arm's measures come from `measure_retrieval`, and its aggregates from `retrieval_summary`. No baseline calls `answer()`, the verifier or the policy. RRF is not added to the answer path. That needs a measured gain on the owner's development split (SPEC §4).
+
+**18.6 Optional dependencies (D95).** scikit-learn and NumPy are imported inside the TF-IDF function only. A baseline-only environment may lack them. There `run_sweep` raises `BenchmarkError` after its checks and before any write, because every sweep runs the TF-IDF and RRF baselines. The sweep test module is then skipped as a whole, and the individual TF-IDF tests skip through `pytest.importorskip`. A subprocess test shows that importing `app.decision`, `app.evaluation`, `app.retrieval`, `app.storage` and `app.benchmark` loads neither package. The P0 deny-list and the requirement files do not change.
+
+**18.7 Limits (P9a).**
+- The phase runs the sweep on synthetic development data only (`tests/fixtures/p9_synthetic_gold.jsonl`, labelled `synthetic`). Its results describe that test set, not the owner's document (B1, B3).
+- No point is calibrated and nothing is written to `config/`. The policy file keeps `calibrated = false` until P9b.
+- With a handful of records, most points tie, and the intervals overlap. The summary shows the ties and does not rank.
