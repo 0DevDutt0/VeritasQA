@@ -57,3 +57,7 @@ models/**
 .env.*
 # NLTK data is not used in V1 (Q6). The name stays ignored as a guard.
 nltk_data/
+
+# --- Personal notes (not part of the repository) ---
+# The GitHub profile checklist is a personal file, not project documentation.
+/github.md
