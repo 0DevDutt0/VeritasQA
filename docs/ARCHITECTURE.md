@@ -856,3 +856,32 @@ Each arm drops duplicates in rank order, by the SHA-256 of `normalize_text(raw_t
 - The phase runs the sweep on synthetic development data only (`tests/fixtures/p9_synthetic_gold.jsonl`, labelled `synthetic`). Its results describe that test set, not the owner's document (B1, B3).
 - No point is calibrated and nothing is written to `config/`. The policy file keeps `calibrated = false` until P9b.
 - With a handful of records, most points tie, and the intervals overlap. The summary shows the ties and does not rank.
+
+## 19. Command-line interface contracts (P10)
+
+Implemented in `app/api` (`cli.py`, `__main__.py`). The package is an adapter. No module under the engine packages imports it, and it does not import `app.benchmark`, so sweeps stay a Python-level tool (D99, §18.6). No web framework is added (SPEC §13). The store schema does not change. The storage layer gains one read method, `Store.page_rows(document_id)`, which returns the `pages` rows in page order.
+
+**19.1 Invocation.** `python -m app.api <command> ...`, run from the repository root. There is no console script in V1. Default paths are relative to the repository root, not to the working directory.
+
+**19.2 Commands.**
+- `ingest PDF --store STORE [--extracted-root DIR]`: validates and extracts the file (`extract_document`, which writes the report, the page texts and the renders under `DIR/<document_id>/`), builds the structure (`build_structure`) and stores both (`Store.write_document`). The document id is the one `document_id_for` derives from the file's SHA-256 (`app/ingestion/validate.py`), so ingesting the same file again replaces that document's rows and adds no second copy. The store is created when it is missing. `DIR` defaults to `data/extracted`.
+- `ask --store STORE --document-id ID QUESTION`: runs `answer()` for that one document and prints the `QAResponse` (SPEC §10). Every status is a normal result with exit code 0, including the abstentions.
+- `report --store STORE [--document-id ID]`: read only. Without an id it lists the documents in the store (id, source name, page count, creation time). With an id it prints the document record, one row per page (page number, status, quality status, extraction method and warning codes), the counts of sections and units by content type, and the structure issues by code.
+- `evaluate --store STORE --document-id ID --gold FILE --split {dev,heldout} [--final-run] [--output-dir DIR] [--run-id ID]`: runs `run_evaluation` once (§17.12). `DIR` defaults to `data/evaluations/runs`, which is git-ignored. A held-out run needs `--final-run`, as §17.5 and D84 require. The run writes one `evaluations` row to the store.
+
+**19.3 Output.** Standard output carries exactly one JSON object: UTF-8, sorted keys, no colour codes. Standard error carries nothing on success. On failure it carries one JSON object, `{"error": {"type": ..., "message": ...}}`, and the message names the cause (a missing store, an unknown document, the held-out flag and so on).
+
+**19.4 Exit codes.** `0`: the command completed. The result may be an abstention. `1`: a `VeritasQAError` or one of its subclasses. Usage errors use argparse's `2`. Other exceptions are not caught, so a bug shows a traceback.
+
+**19.5 Guards.**
+- `ask`, `report` and `evaluate` refuse a store file that does not exist. `Store.open` would otherwise create an empty file and report nothing. Only `ingest` creates a store.
+- An unknown `--document-id` is an error (exit 1), never an INSUFFICIENT_EVIDENCE answer, so a mistyped id cannot look like missing evidence.
+- Several documents can share one store. Every query names its document, and the CLI passes that id to `answer()` and to `run_evaluation()`. A gold file whose quotations belong to another document is refused by `check_against_store` before any answer is made.
+
+**19.6 Owner-document banner and annotators (D115).** `banner_for(Source.OWNER_DOCUMENT)` returns the owner banner: "This is a measurement of the owner's document. Read the annotators field: a record annotated by the assistant has not been checked by the owner." The banner depends only on the source. It says nothing about who annotated, because the annotators are listed in their own field. Every run record gains one top-level field, `annotators`, which holds the sorted, unique annotator strings of the selected records. The field stays out of `config` and `metrics_json`, so the hashes and the comparability of runs (D85) do not change. The sweep summary carries the banner of its source and no annotator list in this phase.
+
+**19.7 Limits (P10).**
+- The commands read the local file system only. There is no network access, no authentication and no progress output.
+- Sweeps are not exposed. `run_sweep` is called from Python.
+- A held-out run can be repeated under a new run id. `--final-run` is a procedure, not a proof (D84).
+- `ask` takes its policy, retrieval and conflict settings from `config/`. The command line has no options for them.
