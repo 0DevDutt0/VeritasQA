@@ -1,44 +1,155 @@
 # VeritasQA
-Evidence-First Document Intelligence
 
-VeritasQA answers questions about a PDF using only text that exists in that PDF. When the evidence does not support an answer, it abstains and says why.
+**Ask a question about a PDF and get the exact sentence it came from, with its page number, or an honest "not enough evidence."**
 
-**No evidence, no answer.** VeritasQA is a deterministic, extractive question-answering system. It has no generative model, no hosted LLM API, no embedding model and no vector database, and V1 uses no PyTorch (D17). Every accepted answer carries an exact quotation with its page and section, and every decision records the checks that produced it.
+VeritasQA is a document question-answering engine built on one rule: **no evidence, no answer.** It finds candidate passages, checks each one against the stored page, and refuses when the evidence is missing, ambiguous, contradictory or unreliable. It uses no language model, no embeddings and no vector database, so the same input always gives the same output.
 
-> **Status:** Phases P0 to P5 are complete, including the deterministic V1 revision and the cleanup of the historical GPU, model and NLP layers (2026-11-04). Question analysis and extractive selection (P5) produce verbatim candidate passages and rule-determined answer spans. They do not decide support, which is for verification (P6) and the decision phase (P7). Ingestion (P1), structure (P2), storage with exact phrase search (P3) and BM25 candidates with reviewed-rule expansion (P4) are complete on synthetic and public documents. The real-document checks are blocked until the owner's PDF is supplied. P6 (evidence verification and citations) is next. See [`PROGRESS.md`](PROGRESS.md) for what is done, what is blocked and what is next.
+- **Quotes, not paraphrases.** Every accepted answer comes with the exact sentence and its page, and with its section where the document has one.
+- **Refuses rather than guesses.** Every refusal has a status and a reason.
+- **Measured, not claimed.** Results are reported on public documents, with their limits. See [Results](#results).
+- **Tested.** 1,310 tests passed and 1 was skipped (it needs the optional Tesseract OCR program) in the last full run. See [Quick start](#quick-start).
 
-## Documents
+> **Status:** the core pipeline is built and tested. The command-line tool is in progress. The repository contains no private documents.
 
-- [`docs/SPEC.md`](docs/SPEC.md): the engineering specification (requirements, hard constraints, phases, definition of done). Its body is verbatim; its header notes the V1 precedence.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): design, the V1 revision (§1A), data contracts, the dependency plan, risks and limitations
-- [`PROGRESS.md`](PROGRESS.md): handoff file with phase status, blockers, decisions, the dependency inventory and the cleanup proposal
-- [`docs/SETUP.md`](docs/SETUP.md): the V1 environment setup, the lock regeneration procedure and the validation record
+## Example
+
+Real output from the current code, on a public NIST document (SP 800-63B-4):
+
+```text
+Question:  How many meters is the range limit that was chosen based on the maximum
+           expected range of a Bluetooth connection?
+Status:    ANSWERED
+Answer:    240 meters
+Quote:     "3The limit of 240 meters was chosen based on the maximum expected range of a Bluetooth connection."
+Page:      50
+```
+
+The leading "3" is probably a footnote marker from the source PDF.
+
+The same kind of question, on a topic the document does not cover (NIST CSF 2.0). Output from the current code:
+
+```text
+Question:  Does this document explain how to use blockchain or distributed ledger
+           technology (DLT) for cybersecurity risk management?
+Status:    INSUFFICIENT_EVIDENCE
+Reason:    no retrieved sentence contains all of: document, explain, use, blockchain,
+           distributed, ledger, technology, dlt, cybersecurity, risk, management
+```
+
+## Statuses
+
+| Status | Meaning |
+| --- | --- |
+| `ANSWERED` | The answer, with its exact quotation and page, and its section where the document has one. |
+| `PARTIAL` | Some parts of a multi-part question are answered; the others are not. |
+| `INSUFFICIENT_EVIDENCE` | No passage supports an answer. |
+| `AMBIGUOUS_QUERY` | The question cannot be searched as written, or the document gives different values that depend on scope or date. Nothing is chosen. |
+| `CONFLICT` | Two passages disagree. Both are shown, and neither is chosen. |
+| `SOURCE_UNVERIFIED` | The page's text quality cannot be trusted, so nothing is accepted from it. |
+
+## Results
+
+<a id="results"></a>
+
+Measured once, on 74 development questions from four public NIST documents, with default settings. An assistant wrote the questions and a program checked them; no person has checked them by hand. The 23 held-out questions have not been run.
+
+| Outcome | Count |
+| --- | --- |
+| Answered, and fully correct | 1 |
+| Answered, with the right passage cited, but the wording did not match the expected text | 2 |
+| Refused, although the document answers the question | 61 |
+| Refused, correctly, because the document does not answer the question | 10 of 10 |
+| Answered, although the document does not answer the question | 0 |
+
+Answers are scored by exact text, so a correct fact in different words counts as wrong. That is a deliberate choice.
+
+The system is built to refuse rather than guess, and these results show that it refuses far too often. By design, it gives an answer only for numbers with units, percentages, money amounts, dates and periods, and permission or prohibition wording. Questions that begin with *what*, *who*, *where* or *which* return the matching passages without an answer. The acceptance rules are not tuned yet, because tuning needs labelled questions from a real document. Answering more often without giving wrong answers is the main open problem.
+
+## Why no language model?
+
+- **Traceable.** Each accepted answer points to a sentence on a page, and each decision lists the checks that produced it.
+- **Repeatable.** The same input gives the same output, which makes failures reproducible.
+- **Copied, not generated.** Answer spans are taken from the document's own text.
+
+## How it works
+
+| Stage | Package | What it does |
+| --- | --- | --- |
+| Ingestion | `app/ingestion` | Reads each page and rates its quality. Flags hidden text, scanned pages and damaged files. |
+| Structure | `app/document_structure` | Rebuilds sections, paragraphs, lists and tables, keeping the page and position of each passage. |
+| Storage | `app/storage` | SQLite with full-text search (FTS5), and a stored copy of every page. |
+| Retrieval | `app/retrieval` | Ranks candidate passages (BM25) and checks exact phrases. |
+| Question analysis and evidence | `app/question_processing`, `app/evidence` | Splits the question into parts, finds the passages, and gives an answer span only for supported types. |
+| Verification | `app/verification` | Re-checks each candidate: exact quotation, location, value, subject, negation, conditions, source quality and more. |
+| Decision | `app/decision`, `app/conflict` | Applies the acceptance rules, shows conflicts and chooses the status. |
+| Evaluation | `app/evaluation`, `app/benchmark` | Validates question sets, computes metrics, and runs parameter sweeps on development data only. |
 
 ## Quick start
 
-Requires Python 3.11 or later with SQLite built with FTS5 (the startup check reports it if missing).
+<a id="quick-start"></a>
+
+Requires Python 3.11 or later, and a SQLite build with the FTS5 extension. No GPU, model download or API key is needed.
 
 ```bash
 python -m venv .venv
-.venv/Scripts/python.exe -m pip install -r requirements.txt   # Windows (Git Bash / PowerShell)
+.venv/Scripts/python.exe -m pip install -r requirements.txt   # Windows; on macOS or Linux use .venv/bin/python
 .venv/Scripts/python.exe -m pytest -q
 ```
 
-The V1 baseline needs no GPU, no PyTorch and no model. The test suite generates its own synthetic PDFs. It does not need the owner's document. The optional TF-IDF group is described in [`docs/SETUP.md`](docs/SETUP.md). V1 does not need it.
+The test suite creates its own synthetic PDFs. Some tests are skipped when an optional local document or the Tesseract OCR program is absent.
 
-## Principles
+Using the Python interface (the command-line tool is next):
 
-1. Evidence before answers.
-2. Deterministic processing wherever practical.
-3. Source provenance at every stage.
-4. Conservative acceptance and mandatory abstention.
-5. Measured results only. No accuracy or "zero hallucination" claim is made without a measured evaluation.
+```python
+from datetime import datetime, timezone
+from pathlib import Path
+
+from app.decision.engine import answer
+from app.document_structure import build_structure
+from app.ingestion.extract import extract_document
+from app.storage import Store
+
+pdf = Path("my-document.pdf")  # a text-based PDF you have the right to use
+extracted = extract_document(pdf, out_root=Path("data/extracted"))
+structure = build_structure(extracted, pdf)
+
+created = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+with Store.open(Path("data/indexes/my-document.sqlite")) as store:
+    store.write_document(extracted, structure, created_at=created)
+    # The question below is the example from the top of this README. Replace it with your own.
+    response = answer(
+        store,
+        extracted.document_id,
+        "How many meters is the range limit that was chosen based on the maximum expected range of a Bluetooth connection?",
+    )
+    print(response.status.value)
+    for span in response.answer_spans:
+        print(span.text, "on page", span.pdf_page)
+```
 
 ## Limitations
 
-- The owner's ~100-page PDF is not yet included, so no result on the real document exists yet.
-- Tesseract OCR is optional and is not installed on the development machine.
-- Retrieval is lexical. Synonyms are limited to reviewed rules, and paraphrases are missed by design (D17).
-- PyMuPDF is licensed AGPL-3.0 or commercially. Check the licence before distributing.
+- **Answer types.** Only numbers with units, percentages, money amounts, dates and periods, and permission or prohibition wording get an answer span. Other questions return passages.
+- **Matching is lexical.** Paraphrases are often missed. Synonym rules are supported, but none has been approved yet.
+- **Scanned pages** need the optional Tesseract OCR program. That path is tested with a stub, not yet on a real scanned document.
+- **Tables.** Borderless tables are not detected. Table values come back as passages, not answers, and derived table rows are never quoted.
+- **Tuning.** The page-quality thresholds and the acceptance settings are not tuned yet. Tuning needs labelled questions from a real document.
+- **Scope of results.** The results describe four public documents only. Use across several documents is not yet tested end to end.
 
-Full details are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §8.
+## Roadmap
+
+- A command-line tool: ingest a PDF, ask questions, print reports and run evaluations, with JSON output.
+- Tests across two documents, to show that answers never mix documents.
+- Tuning, once labelled questions from a real document exist.
+- A licence (see below).
+
+## Documents
+
+- [`docs/SPEC.md`](docs/SPEC.md): requirements, constraints, phases and the definition of done.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): design, data contracts, dependencies, risks and limitations.
+- [`docs/SETUP.md`](docs/SETUP.md): environment setup and the validation record.
+- [`PROGRESS.md`](PROGRESS.md): the project log, with phase status, decisions and open questions.
+
+## Licence
+
+No licence has been chosen yet. The PDF library the project uses, PyMuPDF, is licensed under AGPL-3.0 or sold under a commercial licence, so the choice needs care. Until a licence is added, the code is visible but reuse is not granted.
