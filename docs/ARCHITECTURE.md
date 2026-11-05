@@ -711,7 +711,7 @@ Implemented in `app/evaluation` (`errors.py`, `text.py`, `gold.py`, `scoring.py`
 | `record_id` | `^[a-z0-9][a-z0-9-]{0,62}$`, unique in the file |
 | `question` | text, not blank after trimming |
 | `category` | one of the SPEC §11 categories: `direct_fact`, `numeric_date`, `table`, `paraphrase`, `negation_exception`, `multi_passage`, `compound`, `unanswerable`, `ambiguous`, `conflicting`, `ocr_extraction_edge` |
-| `source` | `synthetic` or `owner_document` |
+| `source` | `synthetic`, `owner_document` or `public_document` (§17.15) |
 | `split` | `dev` or `heldout` |
 | `annotator` | text, not blank |
 | `expected_status` | one of the six SPEC §9 statuses |
@@ -807,6 +807,16 @@ Each discovered false answer still gets its own regression module (SPEC §12).
 - The extraction measures of SPEC §11 (page extraction success, reading-order failures, table-structure accuracy, OCR error review) are not computed in P8a. Their meaning depends on the owner's document, so they belong with the real-data phase, P8b.
 - Intervals are Wilson intervals only. No bootstrap is used.
 - The guard records the file's SHA-256 and refuses wrong calls. It cannot stop a person from changing the configuration and running again.
+
+**17.15 Public stand-in gold set (P8b; D100 to D105).** The owner's document has not been supplied (B1). On 2026-11-05 the owner asked the assistant to download a public document, to write the questions and their answers from it, and not to push the answers to the repository (D100). This section governs that set.
+- **Document (D103).** NIST SP 800-171 Rev. 3, 120 pages. It is a United States federal work and is in the public domain. Its file is `data/documents/standin-nist-sp800-171r3.pdf` and its store is `data/indexes/standin.sqlite`. Neither is committed. No earlier phase used this document, so no earlier result was tuned on it.
+- **Source label (D101).** Gold records use `source: public_document`, never `owner_document`. A run or a sweep whose source is `public_document` carries the stand-in banner ("Public stand-in test set, written by the assistant. This is not a measurement of the owner's document.") and the flag `public_document: true`. The `synthetic` flag stays false for it. A run that mixes sources is still refused (§17.5).
+- **Split rule (D102).** The rule is fixed before any record is written. A record is held out when `int(sha256(record_id)[:8], 16) % 3 == 0`, and it is a development record otherwise. A test checks the rule for every record of the local file.
+- **Authoring (D102, D104).** Quotations are copied from the document as the pipeline stores it, and each must pass layer 2 (§17.4). Each unanswerable record names terms that the document does not contain, and a plain text search of every stored page must find none of them. Each ambiguous record names a term that appears in at least two sections. A category with no genuine instance in this document stays empty, and the report says so.
+- **Changes after the development run (D105).** A label may change after the development run only when it is shown to be wrong. Each change is recorded with its reason in a local change log beside the gold file.
+- **Runs (D105).** Only the development split is run, once, as a baseline that shows the set works end to end. The held-out split is not run, nothing is tuned and nothing is calibrated. Calibration is P9b and waits for the owner.
+- **Storage and reporting (D100).** The gold file, the store, the extracted pages, the run files and the document are git-ignored. The tests that read the local gold file skip when it is absent. Questions, answers and quotations do not go into tracked files: the progress notes and commit messages carry counts and rates only.
+- **Scope.** A result describes this document only. SPEC §16 item 9, which requires manually verified data for the owner's document, stays open.
 
 ## 18. Benchmark and sweep contracts (P9a)
 

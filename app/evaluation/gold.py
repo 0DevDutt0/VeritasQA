@@ -45,10 +45,12 @@ class Category(StrEnum):
 
 
 class Source(StrEnum):
-    """Where the gold text comes from. Synthetic results are never reported as results about the owner's document."""
+    """Where the gold text comes from. Synthetic and public stand-in results are never reported as results about the
+    owner's document (ARCHITECTURE §17.15, D101)."""
 
     SYNTHETIC = "synthetic"
     OWNER_DOCUMENT = "owner_document"
+    PUBLIC_DOCUMENT = "public_document"
 
 
 class Split(StrEnum):

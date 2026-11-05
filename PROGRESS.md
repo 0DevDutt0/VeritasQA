@@ -6,7 +6,7 @@
 
 Say **"continue"**. Then work through the first phase below whose status is `in progress` or `not started`, and follow the per-phase workflow. A phase whose status is `blocked` on an owner decision stops the run: report the open decision and wait. Do not start a later phase.
 
-**Current resume point (2026-11-05, after the owner's answers):** P0-REV, P0-CLEAN, P1 to P8a and P9a are complete. **The next step is P8b, blocked on the owner's PDF (B1) and on hand-annotated questions (B3): report that and wait.** P9a (D90 to D99) ran the sweep harness and the retrieval baselines on the synthetic development split only, and it chose and calibrated nothing. P9b is blocked on the same two items. Passage-only question types are labelled answerable in the gold file (D88). Q4 (the PyMuPDF licence), Q8, Q10, Q11, Q12, Q13 and Q14 are still open. Q15 and Q16 were answered by the owner on 2026-11-05 (D88, D89). Q11 and Q12 are stored and undecided (D60). P6 marks every result that depends on reading order, or on a flagged page, as UNRESOLVED (D62). P7 (D68 to D74) is complete with limitations. P8a (D75 to D87) is complete with limitations: the harness is checked only on synthetic gold, so it reports no result about the owner's document (B1, B3). Q3 (install Tesseract) decides whether the OCR path is ever run for real (B2).
+**Current resume point (2026-11-05, after the public stand-in gold set):** P0-REV, P0-CLEAN, P1 to P9a are complete, and P8b is complete with limitations as a public stand-in (NIST SP 800-171 Rev. 3, written by the assistant at the owner's request; D100 to D105). **The next step is the owner's decision on calibration (P9b).** The owner's own PDF and hand-checked questions are still missing (B1, B3), so every result about the owner's document stays blocked. The stand-in set was run once on its development split and accepts no answer (D105). P10 is not started. P9a (D90 to D99) ran the sweep harness and the retrieval baselines on the synthetic development split only, and it chose and calibrated nothing. P9b is blocked on the same two items. Passage-only question types are labelled answerable in the gold file (D88). Q4 (the PyMuPDF licence), Q8, Q10, Q11, Q12, Q13 and Q14 are still open. Q15 and Q16 were answered by the owner on 2026-11-05 (D88, D89). Q11 and Q12 are stored and undecided (D60). P6 marks every result that depends on reading order, or on a flagged page, as UNRESOLVED (D62). P7 (D68 to D74) is complete with limitations. P8a (D75 to D87) is complete with limitations: the harness is checked only on synthetic gold, so it reports no result about the owner's document (B1, B3). Q3 (install Tesseract) decides whether the OCR path is ever run for real (B2).
 
 | Item | Value |
 | --- | --- |
@@ -53,9 +53,9 @@ Say **"continue"**. Then work through the first phase below whose status is `in 
 | P6 | Evidence verification and citations | complete-with-limitations (verified on synthetic documents; on the public documents, property counts only; PASS is rare because most pages are flagged, D62; support on the owner's document is blocked, B1) | `pytest -q tests/unit/test_p6_*.py tests/integration/test_p6_*.py` |
 | P7 | Conflict detection, decision engine and abstention | complete-with-limitations (synthetic documents pass; the public corpus gives no answer, so the answer path is not measured on real text, B1; stated precedence is shown and never applied, D73) | `pytest -q tests/unit/test_p7_*.py tests/integration/test_p7_*.py` |
 | P8a | Evaluation harness, metrics and regression framework (synthetic) | complete-with-limitations (checked on synthetic gold only; no owner-document result exists, B1, B3; the SPEC §11 extraction measures are not computed, D87) | `pytest -q tests/unit/test_p8_*.py tests/integration/test_p8_*.py tests/regression` |
-| P8b | Real gold dataset (owner's PDF) | **blocked** (B1, B3) | — |
+| P8b | Real gold dataset: public stand-in (NIST SP 800-171 Rev. 3; the owner's PDF is still missing) | complete-with-limitations (written by the assistant at the owner's request; not the owner's document; D100 to D105; B1 and B3 remain for the owner's document) | `pytest -q tests/unit/test_p8b_*.py tests/integration/test_p8b_*.py` |
 | P9a | Benchmark harness and dev-split sweeps (synthetic) | complete-with-limitations (synthetic development split only; nothing is chosen or calibrated, D90; no result about the owner's document, B1, B3) | `pytest -q tests/unit/test_p9_*.py` |
-| P9b | Acceptance calibration on real data and held-out evaluation | **blocked** (B1, B3) | — |
+| P9b | Acceptance calibration on real data and held-out evaluation | **blocked** on the owner's decision (whether to calibrate, and on which data; the owner's document is B1) | — |
 | P10 | CLI and multi-document readiness | not started | `pytest -q tests/unit/test_p10_*.py tests/integration/test_p10_*.py` |
 
 Status values: `not started`, `in progress`, `complete`, `complete-with-limitations`, `blocked`. A phase is marked complete only after its exit-criteria command has passed and the result is recorded below.
@@ -64,14 +64,14 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
 
 | ID | Blocker | Affects | What unblocks it |
 | --- | --- | --- | --- |
-| **B1** | The owner's ~100-page PDF has not been supplied. `data/documents/` is empty. | DoD items 1 and 9; P8b; P9b; any real-document claim | Place the PDF in `data/documents/` (it is git-ignored) and tell the assistant its file name. |
+| **B1** | The owner's ~100-page PDF has not been supplied. `data/documents/` holds only public copies (three corpus papers and the stand-in, all git-ignored). | DoD items 1 and 9; P9b; any result about the owner's document | Place the PDF in `data/documents/` (it is git-ignored) and tell the assistant its file name. |
 | **B2** | Tesseract OCR is not installed on this machine (`tesseract` is not on PATH). | Real OCR validation (P1); OCR-edge questions (P8) | Optional: install Tesseract (for example `winget install UB-Mannheim.TesseractOCR`), then re-run. OCR code is guarded and tested with a stub until then. |
-| **B3** | Gold annotations must be made by hand from the owner's PDF (`SPEC §11`). They cannot be generated or inferred. | P8b; P9b | The owner annotates the questions, or supplies them with exact source quotations, page numbers and split labels. |
+| **B3** | Gold annotations must be made by hand from the owner's PDF (`SPEC §11`). They cannot be generated or inferred. The stand-in set (D100 to D105) was written by the assistant from a public document at the owner's request. It is not a substitute for the owner's annotations. | P9b; DoD item 9 | The owner annotates the questions, or supplies them with exact source quotations, page numbers and split labels. |
 
 ## Open questions for the owner
 
 - **Q1.** Provide the PDF (see B1).
-- **Q2.** The repository is public. Gold annotations quote the source PDF, which may be copyrighted. Should `data/evaluations/gold/` be committed (the current default) or kept local (git-ignored)?
+- **Q2. Closed (2026-11-05, owner: answer files are not pushed; D100).** Gold annotations quote the source PDF, which may be copyrighted. The owner said there is no need to push the PDF and its answers to GitHub. The assistant reads this as settling the question for every answer file, and the owner can object. `data/evaluations/gold/` is now git-ignored except its placeholder file.
 - **Q3.** Should Tesseract be installed for real OCR validation (see B2)?
 - **Q4.** PyMuPDF is AGPL-3.0 or commercially licensed (see `docs/ARCHITECTURE.md` §8). Is that acceptable for a public repository?
 - **Q5. Closed by D17.** The owner's 2026-11-04 revision reversed the GPU and model parts of P0-ENV (D12, D13, D16). Their results stay below as history. The inserted-phase reading of P0-ENV (D11) is kept as recorded. Nothing further is asked here.
@@ -190,6 +190,12 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
 | D97 | **Non-vacuous sweep test (P9a; `tests/fixtures/p9_sweep_docs.py`).** A synthetic document makes the heading weight change which unit ranks first, and makes K = 1 leave the gold unit out. The tests check each point's recall, MRR and tie groups against hand-computed values. A deliberate break of the sweep must make them fail. | A sweep test that passes when every point ties would prove nothing. |
 | D98 | **Shared retrieval functions are public (P9a; ARCHITECTURE §18).** `_measure` becomes `measure_retrieval`, and the aggregation in `_retrieval_block` becomes `retrieval_summary`, so the baselines and the harness share one definition of a hit. The P8a results do not change. | Two definitions of a hit would drift apart. |
 | D99 | **A sweep needs the optional group (P9a; ARCHITECTURE §18.6).** Every sweep runs the TF-IDF and RRF baselines. Without scikit-learn, `run_sweep` stops with `BenchmarkError` after its no-write checks and before any write, and the sweep test module is skipped as a whole. The baseline-only environment therefore runs no sweep. | A sweep without its baselines would publish a summary with two arms missing. Refusing before any write is clearer than a partial result. The clean-venv check made this visible. |
+| D100 | **Public stand-in gold set, and answer files stay local (owner decision, 2026-11-05; ARCHITECTURE §17.15).** The owner had no PDF to supply and asked the assistant to download a public PDF and write the questions and answers from it. The owner also said there is no need to push the PDF or its answers to GitHub. The PDF, the store, the extracted pages, the gold file and its change log are git-ignored. The owner's words also settle Q2 for every answer file. | The owner decided it. The answers quote a document that may be copyrighted, so the earlier default of committing them would publish quoted text. The set is labelled as a stand-in, so its results cannot pass as results about the owner's data. |
+| D101 | **A new source label, `public_document` (ARCHITECTURE §17.2, §17.15).** Stand-in records use it, never `owner_document`. A run or sweep summary with this source carries the stand-in banner and `public_document: true`, and `synthetic` stays false. A run that mixes sources is still refused. | Every output must state that its result is not a measurement of the owner's document. The label is set in the data and checked by a test, so a reader cannot miss it. |
+| D102 | **The split follows a fixed rule (ARCHITECTURE §17.15).** A record is held out when `int(sha256(record_id)[:8], 16) % 3 == 0`, and it is a development record otherwise. The rule was fixed before any record was written, and a test checks it for every record. Result: 81 development and 47 held-out records. | A split chosen after seeing results would tune the test set. The rule depends only on the record id. |
+| D103 | **Document: NIST SP 800-171 Rev. 3 (120 pages).** It is a United States federal work, so it is public domain. No earlier phase used it, so no earlier result was tuned on it. The public papers in `data/corpus/` were examined during earlier phases, so they could not serve as a clean test document. | A fresh document avoids tuning leakage. The owner's own document is still missing (B1). |
+| D104 | **Authoring checks (ARCHITECTURE §17.15).** Every quotation must match its stored page exactly. Each unanswerable record's topic must be absent from every stored page, checked with a plain-text search, not with the engine. Each ambiguous term must appear on at least two stored pages. A category with no real instance in this document stays empty. Checks before the run found five problems: one topic the document does mention, two table quotations and one contents quotation that the stored text does not contain, and one question that the analysis split in two. | A wrong "cannot be answered" label shows up as a false acceptance, which is the measure the spec puts first, so it is checked by search. The table and contents problems come from how the extractor stores tables and dot leaders, and they are recorded as limitations. |
+| D105 | **One development baseline, no held-out run, no tuning (ARCHITECTURE §17.15).** The development split was run once to show the set works end to end. The labels were changed only before that run, and each change is recorded in the local change log. The held-out split has not been run, nothing has been tuned and nothing has been calibrated. | The held-out split is for one final run in P9b, after the owner decides on calibration. Tuning on the development run would make the baseline look better than it is. |
 
 ---
 
@@ -729,17 +735,54 @@ No `nvidia-*` package is installed. The CUDA runtime files (cudart, cublas, cudn
   - **Means have no interval** (MRR, nDCG and token F1).
   - **The known-failure list is empty.** The framework is tested on temporary files, and the empty list passes vacuously on the real file.
   - **The question type in the breakdown is the engine's own type (P5).** A question the analysis classifies differently appears in a different group.
-- **Handoff to P8b (blocked):**
+- **Handoff to P8b (done as a public stand-in, D100 to D105; the owner's document is still needed for DoD item 9):**
   - The gold format and checks are in ARCHITECTURE §17.2 to §17.4. Each record needs `source: owner_document`, a split, an annotator, the SPEC §9 status, and quotes copied from the owner's page text. Line breaks may differ from the quote, but case and every other character must match (D76).
   - Needed first: the owner's PDF in `data/documents/` (B1) and the annotated questions (B3). Gold goes to `data/evaluations/gold/`, and Q2 decides whether that folder is committed.
   - Tune on `split="dev"` only. The one held-out run needs `final_run=True`.
 - **Handoff to P9a (complete, D90 to D99):** every number a sweep needs is in the run file and the `evaluations` row. P9a reads only development records, and `select_split` enforces that. P9a ran while P8b was blocked, as Q16 and D89 allow.
 
-### P8b — Real gold dataset (owner's document) — **blocked (B1, B3)**
+### P8b — Real gold dataset: public stand-in (the owner's document is still blocked, B1 and B3)
 
-- **Status:** blocked
-- **Needed:** the owner's PDF in `data/documents/`, and about 120 manually annotated questions under `data/evaluations/gold/` (development and held-out splits). The categories are listed in `SPEC §11`.
-- **Rule:** the assistant never invents ground-truth facts.
+- **Status:** complete-with-limitations (2026-11-05). At the owner's request, the assistant wrote a gold set from a public document, because the owner's PDF has not been supplied (B1). The set has 128 records: 81 development and 47 held-out. It is not the owner's document, and it does not satisfy SPEC §16 item 9 (B3).
+- **Contract:** `docs/ARCHITECTURE.md` §17.2 (the source row) and §17.15 (D100 to D105). The decisions are in the decisions log.
+- **Branch:** `phase/p8b-public-stand-in`, fast-forward merged into `main` (commit message starting `P8b:`).
+- **Built:**
+  - `app/evaluation/gold.py`: `Source.PUBLIC_DOCUMENT`.
+  - `app/evaluation/runner.py`: `STAND_IN_BANNER`, `banner_for(source)`, and the run payload's `public_document` flag.
+  - `app/benchmark/sweep.py`: the same banner and flag in the sweep summary.
+  - `.gitignore`: the gold folder is ignored except its placeholder file (D100).
+  - Tests: `tests/unit/test_p8b_source.py` (6 tests) and `tests/integration/test_p8b_stand_in.py` (4 tests). The integration tests skip when the local files are absent.
+  - Local and git-ignored, so not in the repository: the PDF (`data/documents/standin-nist-sp800-171r3.pdf`), the store (`data/indexes/standin.sqlite`), the gold file (`data/evaluations/gold/standin-nist-sp800-171r3.jsonl`) and its change log. The questions, answers and quotations are in no tracked file (D100).
+- **Composition (counts only):** 128 records. Categories: direct_fact 43, negation_exception 23, paraphrase 10, numeric_date 10, table 9, compound 6, multi_passage 3, unanswerable 16, ambiguous 5, ocr_extraction_edge 3, conflicting 0. Expected status: ANSWERED 102, INSUFFICIENT_EVIDENCE 16, PARTIAL 5, AMBIGUOUS_QUERY 5.
+- **Empty category:** `conflicting` has no record. The readers found no genuine conflict. Two candidates were remarks in the discussion text that qualify a requirement and do not give a contradictory value. The three `ocr_extraction_edge` records sit on pages 8 and 9, which the extractor flagged. The document is text-based, so no OCR was run (B2).
+- **Checks (all passed):**
+  - Schema and layer-1 load: 128 of 128.
+  - Every quotation verbatim on its stored page: 128 of 128.
+  - Split follows the fixed rule: every record (test).
+  - Unanswerable topics absent from every stored page (plain-text search): 16 of 16, after one topic was replaced (D104).
+  - Ambiguous terms on at least two stored pages: 5 of 5.
+  - Phase tests `pytest -q tests/unit/test_p8b_*.py tests/integration/test_p8b_*.py`: `10 passed in 0.26s`.
+  - Full suite `pytest -q -rs`: `1310 passed, 1 skipped in 502.73s (0:08:22)`. The skip is `requires_tesseract` (`tests/unit/test_p1_render_ocr.py:121`), as before. The increase from 1300 (P9a) is the 10 new tests.
+- **Development baseline (one run, run id `standin-dev-baseline-01`; the run file is outside the repository, and its metrics are in the store's `evaluations` row):** the development split only. The held-out split was not run, and nothing was tuned or calibrated.
+  - Records: 81 development, of which 66 answerable and 15 unanswerable.
+  - Answers accepted: 0 of 81. Correct answers: 0 of 66.
+  - Correct abstentions: 15 of 15 (Wilson 95%: 0.80 to 1.00). False acceptances: 0 of 15 (0.00 to 0.20).
+  - Status accuracy: 13 of 81 (16%; 0.10 to 0.26).
+  - Retrieval over the 67 gold passages measured: recall@1 0.49, recall@5 0.79, recall@10 0.82, MRR 0.63.
+  - Quotation accuracy of the evidence the engine returned: 109 of 109.
+  - Reasons for the refusals (counts only; from the run and from a diagnostic that changed no label):
+    - 40 of the 66 answerable records are passage-only types (what, which, who, where, conditions). The design never answers them (D65, D73, D88).
+    - Of the other 22 answerable records, 18 had no candidate passage at all. One likely cause is a difference in wording, such as "approve" in the question and "Approved" in the passage. That cause is not confirmed. Two were refused on a source-quality or verification flag. Two were classed as unsupported questions. The remaining four are compound records that were not diagnosed.
+    - 116 of 120 pages carry the extractor's "reading order uncertain" flag. The engine marks results from such pages as unresolved (D62), so it can accept little on this document even when retrieval succeeds.
+- **Limitations:**
+  - The assistant wrote the questions and the answers and checked them by program. Nobody annotated them by hand, as SPEC §11 requires for the actual document. The results are not results about the owner's document.
+  - The extractor's flags dominate this document: 116 of 120 pages are flagged, so most candidates stay unresolved. This should be examined before any calibration.
+  - The table rows are stored column by column, so a whole row cannot be quoted as one string. The table records quote the control code and its title on separate lines.
+  - The contents pages (8 and 9) are flagged for suspicious text. The embedded text layer was not checked, because a reader saw only the rendered images.
+  - The 14 yes/no questions in the development split were refused. Their causes were counted, not examined one by one.
+  - The samples are small: 66 answerable and 15 unanswerable development records. The intervals are wide, so read n next to every rate.
+  - No OCR was run (B2).
+- **Handoff:** the owner's PDF (B1) and hand-checked questions (B3) are still needed for DoD item 9. The calibration step (P9b) waits for the owner's decision (D105).
 - **Labelling rule (D88):** passage-only question types (what, who, where, which, conditions, comparison) are labelled answerable whenever the document answers them.
 
 ### P9a — Benchmark harness and dev-split sweeps (synthetic)
@@ -782,12 +825,12 @@ No `nvidia-*` package is installed. The CUDA runtime files (cudart, cublas, cudn
   - The TF-IDF tokenizer is close to the FTS5 tokenizer, not identical.
   - The held-out discipline is still a procedure (as in P8a).
   - A baseline-only environment runs no sweep, because the sweep needs scikit-learn from the optional group (D99).
-- **Handoff:** the next step in the plan is P8b, blocked on the owner's PDF (B1) and on the annotated questions (B3). P9b is blocked on the same items.
+- **Handoff:** superseded. P8b was then completed as a public stand-in (D100 to D105). P9b waits for the owner's decision.
 
-### P9b — Calibration on real data and held-out evaluation — **blocked (B1, B3)**
+### P9b — Calibration on real data and held-out evaluation — **blocked (owner's decision)**
 
-- **Status:** blocked
-- **Needed:** P8b. Calibrate the gates on the development split only. Run the held-out split once, record it, and document the limitations and confidence intervals.
+- **Status:** blocked. The stand-in set (P8b) exists, but the assistant wrote it from a public document. Calibrating the gates on it would not be calibration on the owner's data.
+- **Needed:** the owner's decision (decisions log D105). Either the owner's PDF and hand-checked questions (B1, B3), or an explicit owner instruction to calibrate on the stand-in set. Then calibrate the gates on the development split only, run the held-out split once, record it, and document the limitations and confidence intervals.
 
 ### P10 — CLI and multi-document readiness
 
@@ -811,7 +854,7 @@ No `nvidia-*` package is installed. The CUDA runtime files (cudart, cublas, cudn
 | 6 | Exact quotations and page citations verifiable | P6 complete. Quotation, location and answer-span checks hold on the synthetic documents and on the three public documents, which is source integrity and not support (SPEC §7). Support on the owner's document is blocked (B1). |
 | 7 | Unsupported questions trigger abstention | P7 complete (D72): unsupported, ambiguous, unverified and conflicting results abstain. Tested on synthetic documents. The public-corpus checks are invariants only, and no answer is measured on real text (B1). |
 | 8 | Conflicts exposed, not resolved silently | P7 complete (D70 to D73): every reported difference is shown with both passages, and none is resolved. Stated precedence is not applied (Q14). The screen covers passages that contain every subject word (D58). |
-| 9 | Evaluation metrics from manually verified data | blocked (B3). The harness is built and checked on synthetic gold (P8a, D87), and the sweep harness runs on synthetic development data only (P9a, D90 to D99). No metric on the owner's document exists yet. |
+| 9 | Evaluation metrics from manually verified data | blocked (B3). The harness is built and checked on synthetic gold (P8a, D87), and the sweep harness runs on synthetic development data only (P9a, D90 to D99). P8b measured a public stand-in set once on its development split (D105). It was written by the assistant, it is not the owner's document, and it does not satisfy this item. No metric on the owner's document exists yet. |
 | 10 | Regression tests for discovered failures | P8a: framework in place, `known_failures.jsonl` empty, five harness false results pinned as regression cases (`tests/regression/test_p8_harness_false_results.py`). Grows as failures are found. |
 | 11 | Critical functionality runs without a generative LLM, an embedding model or PyTorch (D17) | Done in P0-CLEAN. `tests/unit/test_p0_dependencies.py` enforces the deny-list in the requirement files and `pyproject.toml`, in the imports under `app/`, and in the modules loaded by importing the package. The project venv holds no PyTorch and no model. |
 | 12 | Documentation explains limitations and reproducible setup | P10 (README), ARCHITECTURE §8–9 |

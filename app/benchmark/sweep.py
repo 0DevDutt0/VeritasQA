@@ -20,7 +20,7 @@ from app.conflict.config import ConflictConfig, load_conflict_config
 from app.decision import ENGINE_VERSION, load_policy
 from app.decision.policy import AcceptancePolicy
 from app.evaluation.gold import GoldDataset, Source, select_split
-from app.evaluation.runner import RUN_ID_PATTERN, SYNTHETIC_BANNER, EvaluationRun, run_evaluation
+from app.evaluation.runner import RUN_ID_PATTERN, EvaluationRun, banner_for, run_evaluation
 from app.retrieval.config import RetrievalConfig, load_retrieval_config
 from app.retrieval.rules import RuleSet, load_rules
 from app.storage import Store
@@ -171,15 +171,15 @@ def run_sweep(
     entries = [_point_entry(point, run) for (point, _, _), run in zip(plan, runs, strict=True)]
     groups = _tie_groups(entries)
     source = records[0].source
-    synthetic = source is Source.SYNTHETIC
     summary: dict[str, Any] = {
         "sweep_id": sweep_id,
         "created_at": created,
         "engine_version": ENGINE_VERSION,
         "split": SPLIT,
         "source": source.value,
-        "synthetic": synthetic,
-        "banner": SYNTHETIC_BANNER if synthetic else None,
+        "synthetic": source is Source.SYNTHETIC,
+        "public_document": source is Source.PUBLIC_DOCUMENT,
+        "banner": banner_for(source),
         "dataset": {
             "file": dataset.file_name,
             "sha256": dataset.sha256,

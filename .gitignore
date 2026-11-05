@@ -31,7 +31,10 @@ data/extracted/*
 data/indexes/*
 !data/indexes/.gitkeep
 data/evaluations/runs/
-# data/evaluations/gold/ is deliberately NOT ignored: hand-made gold annotations cannot be regenerated.
+# Gold answer files (questions, answers and quotations) stay local. The owner asked on 2026-11-05 that they not be
+# pushed (decision D100). The placeholder file stays tracked.
+data/evaluations/gold/*
+!data/evaluations/gold/.gitkeep
 
 # --- Model artifacts, weights, caches and local secrets ---
 # V1 uses no model (D17). These rules are a guard: no weight or model cache is committed by accident.

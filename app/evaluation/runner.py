@@ -43,6 +43,7 @@ from app.storage import Store
 CONFIDENCE_LEVEL = 0.95
 RUN_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}")
 SYNTHETIC_BANNER = "Synthetic test set. This is not a measurement of the owner's document."
+STAND_IN_BANNER = "Public stand-in test set, written by the assistant. This is not a measurement of the owner's document."
 LIMITATIONS = (
     "A rate with a small n has a wide interval. Read n next to every rate.",
     "Means (MRR, nDCG and token F1) carry n and no interval in this phase.",
@@ -50,6 +51,15 @@ LIMITATIONS = (
     "The risk-coverage ordering uses retrieval rank only. It is an ordering, not a probability (SPEC §9).",
     "Passage-only question types abstain by design (PROGRESS.md decisions D65 and D73). Read the breakdown by type.",
 )
+
+
+def banner_for(source: Source) -> str | None:
+    """The banner that a run or a sweep summary carries for its source (ARCHITECTURE §17.15, D101)."""
+    if source is Source.SYNTHETIC:
+        return SYNTHETIC_BANNER
+    if source is Source.PUBLIC_DOCUMENT:
+        return STAND_IN_BANNER
+    return None
 
 
 @dataclass(frozen=True)
@@ -270,7 +280,6 @@ def run_evaluation(
         "confidence_level": CONFIDENCE_LEVEL,
         "z": Z_95,
     }
-    synthetic = source is Source.SYNTHETIC
     payload = {
         "run_id": run_id,
         "created_at": created_at,
@@ -278,8 +287,9 @@ def run_evaluation(
         "split": split_value,
         "final_run": final_run,
         "source": source.value,
-        "synthetic": synthetic,
-        "banner": SYNTHETIC_BANNER if synthetic else None,
+        "synthetic": source is Source.SYNTHETIC,
+        "public_document": source is Source.PUBLIC_DOCUMENT,
+        "banner": banner_for(source),
         "dataset": {"file": dataset.file_name, "sha256": dataset.sha256, "record_count": len(records)},
         "config": config,
         "metrics": metrics,
