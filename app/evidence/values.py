@@ -14,6 +14,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 
+from app.question_processing.vocabulary import FUNCTION_WORDS, NEGATION_WORDS, QUESTION_WORDS
+
 
 class ValueKind(StrEnum):
     NUMBER = "number"
@@ -91,6 +93,18 @@ _WORD_CURRENCY_RE = re.compile(
     rf"(?<![\w./,-])(?P<num>{_NUMBER})[ \t \r\n]*(?P<cur>(?i:dollars?|euros?|pounds?|rupees?|cents?))(?![A-Za-z])"
 )
 _NUMBER_RE = re.compile(_NUMBER)
+# One word between a number and its counted noun (P12, D129). Only a space (the same class as the separators above, with
+# the non-breaking space written as \xa0), a line break or a hyphen may separate the three parts, so they always lie in
+# one sentence.
+_GAP_AFTER_RE = re.compile(
+    r"(?:[ \t\xa0\r\n]+|-)(?P<gap>[A-Za-z]+)(?:[ \t\xa0\r\n]+|-)(?P<word>[A-Za-z]+)(?![A-Za-z0-9_²³])"
+)
+# Cardinal number words. A number word never serves as the word between a number and its counted noun (P12).
+_NUMBER_WORDS = frozenset(
+    """zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen
+    seventeen eighteen nineteen twenty thirty forty fifty sixty seventy eighty ninety hundred thousand million
+    billion dozen""".split()
+)
 _UNIT_AFTER_RE = re.compile(rf"(?P<sep>[ \t \r\n]+|-)(?P<unit>{_UNIT})(?![A-Za-z0-9_²³])")
 _WORD_AFTER_RE = re.compile(r"(?P<sep>[ \t \r\n]+|-)(?P<word>[A-Za-z]+)(?![A-Za-z0-9_²³])")
 
@@ -151,6 +165,16 @@ def _is_count_use(text: str, start: int, end: int, word: str) -> bool:
     return start > 0 and text[start - 1] != "\n"
 
 
+def _is_gap_word(word: str) -> bool:
+    """True when ``word`` may sit between a number and its counted noun (P12, D129).
+
+    The word must not be a function word, a question word, a negation or a number word. The caller has already
+    checked that it is alphabetic.
+    """
+    lower = word.lower()
+    return not (lower in FUNCTION_WORDS or lower in QUESTION_WORDS or lower in NEGATION_WORDS or lower in _NUMBER_WORDS)
+
+
 def _overlaps(taken: list[tuple[int, int]], start: int, end: int) -> bool:
     return any(start < other_end and other_start < end for other_start, other_end in taken)
 
@@ -173,7 +197,9 @@ def find_values(text: str, *, count_nouns: Iterable[str] = ()) -> tuple[Value, .
     """The values of ``text``, in order of position, each with its exact span.
 
     ``count_nouns`` are words from the question. A number directly followed by one of them is a value with
-    that word as its unit (``9 members`` for ``How many members``).
+    that word as its unit (``9 members`` for ``How many members``). So is a number with exactly one word between
+    it and one of them, when that word is not a function word, a question word, a negation or a number word, and
+    the span then includes that word (``9 active members``, P12).
     """
     taken: list[tuple[int, int]] = []
     found: list[Value] = []
@@ -237,6 +263,16 @@ def find_values(text: str, *, count_nouns: Iterable[str] = ()) -> tuple[Value, .
             ):
                 unit = forms[word_match.group("word").lower()]
                 value_end = word_match.end()
+            else:
+                gap_match = _GAP_AFTER_RE.match(text, end)
+                if (
+                    gap_match is not None
+                    and _is_gap_word(gap_match.group("gap"))
+                    and gap_match.group("word").lower() in forms
+                    and _is_count_use(text, start, end, gap_match.group("word"))
+                ):
+                    unit = forms[gap_match.group("word").lower()]
+                    value_end = gap_match.end()
         if _overlaps(taken, value_start, value_end):
             continue
         take(Value(ValueKind.NUMBER, text[value_start:value_end], value_start, value_end, unit, negative=negative))
