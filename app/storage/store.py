@@ -183,6 +183,38 @@ class Store:
         """The extraction method stored for one page (``native_text``, ``ocr_tesseract`` or ``none``). Read only (P7)."""
         return repository.read_page_extraction_method(self._conn, document_id, pdf_page)
 
+    def record_evaluation(
+        self,
+        *,
+        run_id: str,
+        created_at: str,
+        split: str,
+        config_json: str,
+        metrics_json: str,
+        dataset_sha256: str,
+    ) -> None:
+        """Append one evaluation run to the ``evaluations`` table (ARCHITECTURE §17.12). A repeated run_id is refused."""
+        try:
+            with _write_transaction(self._conn):
+                repository.insert_evaluation(
+                    self._conn,
+                    run_id=run_id,
+                    created_at=created_at,
+                    split=split,
+                    config_json=config_json,
+                    metrics_json=metrics_json,
+                    dataset_sha256=dataset_sha256,
+                )
+        except sqlite3.IntegrityError as exc:
+            raise StorageError(f"evaluation run {run_id} is already recorded") from exc
+        except sqlite3.Error as exc:
+            raise StorageError(f"could not record evaluation run {run_id}: {exc}") from exc
+
+    def read_evaluation(self, run_id: str) -> dict[str, str] | None:
+        """One recorded evaluation run, or None. Read only (ARCHITECTURE §17.12)."""
+        row = repository.read_evaluation(self._conn, run_id)
+        return None if row is None else {key: row[key] for key in row.keys()}
+
     def match_units(self, document_id: str, fts_match: str) -> list[EvidenceUnit]:
         """Body-retrieval units of one document whose FTS row matches ``fts_match``, in page order.
 

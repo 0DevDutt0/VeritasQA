@@ -255,7 +255,32 @@ def insert_fts(conn: sqlite3.Connection, structure: DocumentStructure) -> None:
     )
 
 
+def insert_evaluation(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    created_at: str,
+    split: str,
+    config_json: str,
+    metrics_json: str,
+    dataset_sha256: str,
+) -> None:
+    """One row of the ``evaluations`` table (ARCHITECTURE §17.12). The JSON texts are already canonical."""
+    conn.execute(
+        f"INSERT INTO evaluations (run_id, created_at, split, config_json, metrics_json, dataset_sha256) "
+        f"VALUES ({_marks(6)})",
+        (run_id, created_at, split, config_json, metrics_json, dataset_sha256),
+    )
+
+
 # ----------------------------------------------------------------------------- reads
+
+
+def read_evaluation(conn: sqlite3.Connection, run_id: str) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT run_id, created_at, split, config_json, metrics_json, dataset_sha256 FROM evaluations WHERE run_id = ?",
+        (run_id,),
+    ).fetchone()
 
 
 def read_document_ids(conn: sqlite3.Connection) -> list[str]:

@@ -697,3 +697,111 @@ Rule 5's source test uses the verifier's check statuses, not the text of the rea
 - Supersession never grants an answer (above). Passage-only types never pass (D65).
 - The scope and date tests are heuristics, reviewed by reading. They choose labels, and every case without an answer is an abstention. None is calibrated on gold data (B1, B3).
 - A PASS is still candidate-level evidence. The answer is the decision's output, and it has been checked only on synthetic documents, because the public corpus has no PASS on a verified page (P6, D62).
+
+## 17. Evaluation contracts (P8a)
+
+Implemented in `app/evaluation` (`errors.py`, `text.py`, `gold.py`, `scoring.py`, `metrics.py`, `runner.py`). The store gains two methods, `Store.record_evaluation` and `Store.read_evaluation`, which use the existing `evaluations` table. No schema change (`SCHEMA_VERSION` stays). The regression framework is `tests/fixtures/regression_cases.py`, `tests/regression/test_p8_known_failures.py` and `tests/regression/known_failures.jsonl`. Synthetic gold lives in `tests/fixtures/`, never in `data/evaluations/gold/`. The harness reads responses from `answer()` and never changes the store.
+
+**17.1 Text rule (D76).** Quotes, answer texts and containment tests compare `normalize(s) = " ".join(s.split())`. Any run of whitespace, including a line break from a line join, is one space. Case, punctuation, diacritics and every other character are compared exactly. There is no case folding, no stemming and no fuzzy matching.
+
+**17.2 Gold record (D75).** A `.jsonl` file, read through `app/common/files.py`, with one JSON object per line. Extra fields are refused.
+
+| Field | Type and rule |
+| --- | --- |
+| `record_id` | `^[a-z0-9][a-z0-9-]{0,62}$`, unique in the file |
+| `question` | text, not blank after trimming |
+| `category` | one of the SPEC §11 categories: `direct_fact`, `numeric_date`, `table`, `paraphrase`, `negation_exception`, `multi_passage`, `compound`, `unanswerable`, `ambiguous`, `conflicting`, `ocr_extraction_edge` |
+| `source` | `synthetic` or `owner_document` |
+| `split` | `dev` or `heldout` |
+| `annotator` | text, not blank |
+| `expected_status` | one of the six SPEC §9 statuses |
+| `evidence` | list of `{component >= 1, pdf_page >= 1, quote (not blank)}` |
+| `answers` | list of `{component >= 1, text (not blank)}` |
+
+A record is **answerable** when `expected_status` is `ANSWERED` or `PARTIAL`. Otherwise it is **unanswerable**. A component index is **expected answerable** when the record is answerable and the record has gold evidence for that index.
+
+**17.3 Validation, layer 1: the file alone (D77).** `GoldRecord` refuses: an answer on an unanswerable record; an answerable record with no evidence; an answer whose normalized text does not occur in a normalized evidence quote of the same component; a duplicate `record_id`; a line that is not valid JSON (the error names the line); an empty file.
+
+**17.4 Validation, layer 2: the stored document (D76, D77).** `check_against_store(record, store, document_id)` refuses: a page that is not in the document; a quote that does not occur verbatim (17.1) in the stored raw text of its page; a component index above the number of components that `analyze(question)` returns; for `ANSWERED`, a component with no gold evidence; for `PARTIAL`, no component with gold evidence, or no component without it. It raises `GoldError`, naming the record and the reason. Inexact quotations are refused here, not in layer 1. The check runs for every selected record before the first `answer()` call.
+
+**17.5 Split and source guard (D84).** `load_gold(path)` returns `GoldDataset` with the records, the SHA-256 of the file's bytes and the file name. `select_split(dataset, split, *, final_run)` runs before any `answer()` call:
+- `split` must be `dev` or `heldout`. Any other value, including "all", is refused.
+- `heldout` requires `final_run=True`. `dev` with `final_run=True` is refused.
+- The result holds only records of that split. A run that mixes `source` values is refused.
+
+The guard is a function parameter, not a command-line flag. The command-line interface arrives in P10.
+
+**17.6 Outcomes (D78).** Components are numbered from 1 in question order. For component i of a response:
+- `accepted_i` is true when the component's status is `ANSWERED`.
+- `correct_i` is defined only when `accepted_i` holds. It is true when component i is expected answerable and the answer matches the gold:
+  - if gold answers exist for i, some answer span of component i has a text equal to a gold answer of i, and the evidence item that carries that span contains a gold quote of i;
+  - otherwise some evidence item of component i contains a gold quote of i.
+
+Each record receives one outcome:
+
+| Outcome | Condition |
+| --- | --- |
+| `correct_answer` | answerable; at least one accepted component; every accepted component correct; every expected-answerable component accepted |
+| `incomplete_answer` | answerable; at least one accepted component; every accepted component correct; some expected-answerable component not accepted |
+| `incorrect_answer` | answerable; at least one accepted component is not correct (an accepted component that was not expected also counts) |
+| `incorrect_abstention` | answerable; no accepted component |
+| `correct_abstention` | unanswerable; no accepted component |
+| `false_acceptance` | unanswerable; at least one accepted component |
+
+A `PARTIAL` response is judged one component at a time. A wrong accepted component makes the record `incorrect_answer`, even when another component is right.
+
+**17.7 Retrieval measures (D80).** Measured for each component that has gold evidence.
+- The cut `k_cut` is the `k` of that component's retrieval summary. A component that was not searched has an empty list, and its cut is the configured `k`.
+- A returned unit is a **hit** for gold quote g when the unit lies on g's page and `normalize(g)` occurs in `normalize(unit.raw_text)`. A unit is **credited** for the first hit of a gold quote that no earlier unit has credited.
+- Recall@K = gold quotes whose first hit has rank at most K, divided by the number of gold quotes G.
+- Precision@K = hits among ranks 1 to K, divided by K. The denominator is K even when fewer units were returned.
+- nDCG@K = (sum over credited units with rank at most K of 1/log2(rank+1)) divided by (sum for j = 1 to min(K, G) of 1/log2(j+1)). Binary gain.
+- MRR = 1 divided by the rank of the first hit in the returned list, or 0 when there is none.
+- A metric at K is defined only when K is at most `k_cut`. Otherwise it is `None`. Recall is never reported at a depth the engine did not search.
+
+**17.8 Answer and evidence measures (D81).**
+- Exact match: over gold answers, the share with a span of the same component whose normalized text equals the gold text.
+- Token F1: over gold answers, the best F1 over the spans of the same component, on `\w+` tokens of the normalized texts. 0 when there is no span.
+- Status accuracy: the share of records whose status equals `expected_status`.
+- Quotation accuracy: over evidence items that have a quote, the share where `page_text[source_start:source_end] == quote` exactly. The page text is read from the store. Items without a quote are counted apart, not scored.
+- Answer-span integrity: over answer spans, the share where `page_text[start:end] == text` exactly.
+- Citation page accuracy: over accepted, expected-answerable components, the share with an evidence item on a gold page of that component.
+- Evidence support: over accepted, expected-answerable components, the share with an evidence item that contains a gold quote of that component.
+- Unsupported answer rate: over accepted components, the share with no evidence item that carries an accepted verification (`CandidateVerification.accepted`) for the same component.
+
+**17.9 Rates and empty denominators (D79).** A rate is successes divided by n. When n is 0 the rate is `None`, never 0.0, and n is still reported. Every rate reports n and a Wilson 95% interval, with z = 1.959963984540054. A mean over records follows the same rule.
+
+Question-level rates, where "total" is every selected record:
+- coverage = accepted / total;
+- correct answer rate = `correct_answer` / answerable;
+- incomplete answer rate = `incomplete_answer` / answerable;
+- incorrect abstention rate = `incorrect_abstention` / answerable;
+- correct abstention rate = `correct_abstention` / unanswerable;
+- false acceptance rate = `false_acceptance` / unanswerable;
+- incorrect accepted answer rate = (`incorrect_answer` + `false_acceptance`) / total;
+- selective risk = (`incorrect_answer` + `false_acceptance`) / accepted.
+
+Component-level counts and rates: accepted components, incorrect accepted components, expected-answerable components not accepted, with their rates over the matching denominators.
+
+**17.10 Breakdowns (D82).** Every count and rate of 17.9 is also reported for each category (the gold `category`) and for each question type. A record's question type is the type of its only component, or `compound` when it has several. Each group is its own table. No group is merged into another.
+
+**17.11 Risk-coverage ordering (D83).** The points are the accepted records, ordered by the best rank that their accepted components' evidence has in its retrieval list (rank 1 is best), then by `record_id`. Point j has coverage = j / total and risk = errors among the first j, divided by j. An error is `incorrect_answer` or `false_acceptance`. This orders the engine's own output. It is not a probability (SPEC §9). With tied ranks the curve is flat or degenerate, and it is reported as it is.
+
+**17.12 Run record (D85).** `run_evaluation(store, document_id, dataset, split, *, final_run=False, output_dir, run_id=None, created_at=None, policy=None, retrieval_config=None, rules=None, conflict_config=None)`.
+- `<output_dir>/<run_id>.json` holds the run: `run_id`, `created_at`, `engine_version`, `split`, `final_run`, `source`, a synthetic banner when the source is synthetic, the dataset (`sha256`, `record_count`, file name), the configuration (policy version and SHA-256, calibration flag, retrieval `k`, `expansion_k`, `context_window`, the rule-set fingerprint, the cut depths, the confidence level), the metrics, the risk-coverage points, one entry per record, and the limitations.
+- The `evaluations` row holds `run_id`, `created_at`, `split`, `dataset_sha256`, `config_json` (the configuration) and `metrics_json` (counts, rates, breakdowns and risk-coverage points). Both JSON texts use sorted keys. `metrics_json` holds no id, no timestamp and no per-record list, so the same inputs give the same text. A test compares two runs with different ids and times.
+- `run_id` is 1 to 80 letters, digits, dots, dashes or underscores, starting with a letter or digit, because it names the file. Any other value is refused before anything is written.
+- `output_dir` is a required argument. Tests write to `tmp_path`. `data/evaluations/runs/` is written only by the command-line interface, in P10.
+
+**17.13 Regression framework (D86).** `tests/regression/known_failures.jsonl` lists open known failures, one JSON object per line. The file starts empty. Each entry has: `id` (kebab-case, unique); `phase`; `summary`; `question`; `expected_status`; `document`, which is either `{"items": [{"page", "text", "content_type"}, ...]}` inline or `{"fixture": "<registered id>"}`; and `reason`. The registered ids are in `tests/fixtures/regression_cases.py`. The rules:
+- every entry is validated (schema, unique `id`, a known fixture id);
+- an open entry must still fail. If the engine now gives the expected status, the test fails and names the entry, so the entry moves to a regression module next to its fix;
+- a deliberately regressing case must be reported. A test writes one to a temporary file and checks that the mechanism reports it.
+
+Each discovered false answer still gets its own regression module (SPEC §12).
+
+**17.14 Scope limits (P8a).**
+- The harness is checked only on synthetic gold, labelled `source: synthetic`. Its results describe the test set, not the owner's document. DoD item 9 stays blocked on B3.
+- The extraction measures of SPEC §11 (page extraction success, reading-order failures, table-structure accuracy, OCR error review) are not computed in P8a. Their meaning depends on the owner's document, so they belong with the real-data phase, P8b.
+- Intervals are Wilson intervals only. No bootstrap is used.
+- The guard records the file's SHA-256 and refuses wrong calls. It cannot stop a person from changing the configuration and running again.
