@@ -20,7 +20,7 @@ from app.conflict.config import ConflictConfig, supersession_pattern
 from app.document_structure.models import ContentType, EvidenceUnit
 from app.evidence.markers import Marker, find_markers
 from app.evidence.segment import sentence_spans
-from app.evidence.selection import unit_page_offsets
+from app.evidence.selection import sentence_pairs, unit_page_offsets
 from app.evidence.values import Value, ValueKind, find_values
 from app.question_processing.analysis import QuestionComponent, QuestionType
 from app.question_processing.vocabulary import (
@@ -64,7 +64,8 @@ class Piece:
 
     ``page_start`` and ``page_end`` are offsets in the page's raw text. They are None when the piece crosses a join
     between source spans, so it cannot be quoted. ``dates`` are the effective dates of the piece (not its claims) for
-    ``how_many`` and ``whether``. ``scope`` is the set of its qualifying words (ARCHITECTURE §16.3).
+    ``how_many`` and ``whether``. ``scope`` is the set of its qualifying words (ARCHITECTURE §16.3). ``unit_span`` is
+    the piece's offsets in its unit's raw text, so that two pieces sharing a sentence can be recognised (P14, §16.3).
     """
 
     evidence_id: str
@@ -83,6 +84,7 @@ class Piece:
     scope: frozenset[str]
     dates: frozenset[str]
     supersession_phrase: str | None
+    unit_span: tuple[int, int] | None = None
 
     @property
     def clean(self) -> bool:
@@ -206,6 +208,7 @@ def _piece(
         scope=scope_words(text, component.target_terms, values, markers),
         dates=dates,
         supersession_phrase=_supersession(text, config),
+        unit_span=(start, end),
     )
 
 
@@ -262,6 +265,14 @@ def _reason(kind: ConflictRelation, first: Piece, second: Piece, first_claim: Cl
     )
 
 
+def _share_a_sentence(first: Piece, second: Piece) -> bool:
+    """True when two pieces are the same unit and their spans overlap. A sentence pair (P14) shares its sentences
+    with its members and with the pairs next to it, so such pieces are never compared (ARCHITECTURE §16.3)."""
+    if first.unit_span is None or second.unit_span is None or first.evidence_id != second.evidence_id:
+        return False
+    return first.unit_span[0] < second.unit_span[1] and second.unit_span[0] < first.unit_span[1]
+
+
 def compare_pieces(pieces: list[Piece] | tuple[Piece, ...]) -> tuple[tuple[Relation, ...], int]:
     """Compare every pair of claims of ``pieces`` (in piece order). Returns the relations and the number of agreeing
     pairs. Public so that the rules can be tested without a store (ARCHITECTURE §16.3)."""
@@ -272,6 +283,8 @@ def compare_pieces(pieces: list[Piece] | tuple[Piece, ...]) -> tuple[tuple[Relat
         first = pieces[first_index]
         for second_index in with_claims[position + 1 :]:
             second = pieces[second_index]
+            if _share_a_sentence(first, second):
+                continue
             for first_claim in first.claims:
                 for second_claim in second.claims:
                     outcome = compare(first_claim, second_claim)
@@ -323,6 +336,9 @@ def screen_component(
             text = unit.raw_text[start:end]
             if all(span_matches(text, query) for query in queries):
                 pieces.append(_piece(unit, start, end, component, config))
+        # P14 (ARCHITECTURE §16.2): the sentence pairs that the selection rule builds are pieces too.
+        for _, _, start, end in sentence_pairs(component, unit, component.target_terms):
+            pieces.append(_piece(unit, start, end, component, config))
     relations, agreeing = compare_pieces(pieces)
     counts = ScreenCounts(
         units_with_every_word=len(units),

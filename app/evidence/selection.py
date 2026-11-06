@@ -160,6 +160,60 @@ def _is_quantity(value: Value) -> bool:
     return value.kind == ValueKind.NUMBER and value.unit is not None
 
 
+PAIR_TYPES: frozenset[QuestionType] = frozenset({QuestionType.WHEN, QuestionType.HOW_MANY, QuestionType.WHETHER})
+
+
+def _counted_offsets(question_type: QuestionType, text: str, count_nouns: tuple[str, ...]) -> list[tuple[int, int]]:
+    """Offsets in ``text`` of the values or markers that the rule of ``question_type`` counts (ARCHITECTURE §14)."""
+    if question_type == QuestionType.WHETHER:
+        return [(marker.start, marker.end) for marker in find_markers(text, "permission")]
+    values = _values_of(text, count_nouns)
+    if question_type == QuestionType.WHEN:
+        return [(value.start, value.end) for value in values if value.kind in (ValueKind.DATE, ValueKind.PERIOD)]
+    return [(value.start, value.end) for value in values if _is_quantity(value)]
+
+
+def sentence_pairs(
+    component: QuestionComponent, unit: EvidenceUnit, count_nouns: tuple[str, ...]
+) -> tuple[tuple[int, int, int, int], ...]:
+    """The two-sentence windows of one unit that the P14 rule builds (ARCHITECTURE §14, 'Sentence pairs').
+
+    Each item is ``(first, second, start, end)``: the indices of two adjacent sentences of the unit, and the window's
+    offsets in ``unit.raw_text``. A window needs every target term in it, at least one responsive value or marker, a
+    sentence that is not a candidate by itself, and no value or marker cut by the boundary between the two sentences.
+    Only ``when``, ``how_many`` and ``whether`` use windows. Derived rows and table cells never do.
+    """
+    question_type = component.question_type
+    if question_type not in PAIR_TYPES or unit.derived or unit.content_type == ContentType.TABLE_CELL:
+        return ()
+    raw = unit.raw_text
+    sentences = sentence_spans(raw)
+    queries = [build_phrase_query(term) for term in component.target_terms]
+
+    def has_targets(text: str) -> bool:
+        return all(span_matches(text, query) for query in queries)
+
+    singles = {
+        index
+        for index, (start, end) in enumerate(sentences)
+        if has_targets(raw[start:end])
+        and _expected_present(question_type, _values_of(raw[start:end], count_nouns), raw[start:end])
+    }
+    pairs: list[tuple[int, int, int, int]] = []
+    for index in range(len(sentences) - 1):
+        if index in singles or index + 1 in singles:
+            continue
+        start, end = sentences[index][0], sentences[index + 1][1]
+        text = raw[start:end]
+        if not has_targets(text) or not _expected_present(question_type, _values_of(text, count_nouns), text):
+            continue
+        boundary = sentences[index][1] - start
+        if any(first < boundary < last for first, last in _counted_offsets(question_type, text, count_nouns)):
+            continue
+        pairs.append((index, index + 1, start, end))
+    return tuple(pairs)
+
+
 _EXPECTED_REASON: dict[QuestionType, str] = {
     QuestionType.WHEN: "a date or period",
     QuestionType.HOW_MANY: "a number with a unit, a percentage or a currency amount",
@@ -314,6 +368,18 @@ def _select_for_component(
         if crossed:
             dropped.append(DroppedCandidate(retrieval.evidence_id, _CROSSES_SPAN))
             counts.crossed += 1
+        # P14 windows come after the single sentences of their unit. They never change the counters or the reasons.
+        pair_crossed = False
+        for _, _, start, end in sentence_pairs(component, unit, count_nouns):
+            page_range = _page_offsets(unit, start, end)
+            if page_range is None:
+                pair_crossed = True
+                continue
+            candidates.append(
+                _candidate(component, retrieval, unit, start, end, "sentence_pair", page_range, count_nouns)
+            )
+        if pair_crossed and not crossed:
+            dropped.append(DroppedCandidate(retrieval.evidence_id, _CROSSES_SPAN))
     return candidates, dropped, counts
 
 
