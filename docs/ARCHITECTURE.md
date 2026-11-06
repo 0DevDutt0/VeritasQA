@@ -500,6 +500,8 @@ Implemented in `app/retrieval` (`bm25.py`, `terms.py`, `rules.py`, `config.py`, 
 
 Context is never a candidate, never replaces one and is never quoted on its own. A separate list of all section siblings is not attached, because a whole section on every candidate would be too large. The in-section neighbours inside the window are the siblings.
 
+**Neighbour sentences (P14, D133).** P14 does not change retrieval: the query, the ranking, the slots, the duplicates, the context and the carried flags are as described above. Selection (§14) may read one neighbouring sentence of a retrieved unit, for `when`, `how_many` and `whether` components only. It never reads a sentence outside the retrieved unit, so the rule adds no retrieval candidate and no unit.
+
 **Carried flags.** Every candidate carries `derived` (a generated table row, which must never be quoted) and `extraction_quality` (`verified`, `warning` or `unverified`). Units from unverified pages are returned, not filtered, so that abstention can see them. P6 and P7 decide what they may support.
 
 **Exact terms (D43).** `terms.extract_terms` finds numbers (`3.5`), percentages (`10%`), dates (`2024-01-01`, `4 March 2024`, `March 4, 2024`) and identifiers (`ABC-123`) in the query. Each candidate lists the query terms whose exact phrase is found in its raw text, using the P3 exact check (`exact_terms`). This is information for P6. It does not change the ranking. BM25 still matches `3.5` inside `3.5.2`, so a candidate without an exact term is a candidate, not a match.
@@ -573,11 +575,19 @@ Implemented in `app/question_processing` (`analysis.py`, `vocabulary.py`, `error
 - `ComponentSelection.status` is `ambiguous` or `unsupported` for those components, and no retrieval result is required for them.
 - Determinism: the same question, the same retrieval results and the same units give the same `SelectionResult`, including order.
 
+**Sentence pairs (P14, D133).** For `when`, `how_many` and `whether` components only, a candidate may also be a window of two adjacent sentences of one body unit, in document order. A window is built only when all four of these hold:
+1. every target term of the component occurs in the window, under the P3 exact check;
+2. the window holds at least one value or marker of the type the rule asks for (the same responsiveness test as for one sentence);
+3. neither sentence of the window is, by itself, a candidate of the component. Windows therefore add candidates only where no single sentence gives one, and the single-sentence candidates, their counters and the reasons are unchanged;
+4. no value or marker of that type crosses the boundary between the two sentences, so each one sits inside one sentence of the window.
+
+The quote is the verbatim text from the start of the first sentence to the end of the second. Its granularity is `sentence_pair`. The rule ID does not change, and the answer rule is the same: the span is the one value or marker of the quote, and otherwise the flag is `multiple_values` or `multiple_markers`. A second value in the neighbour therefore leaves no span. A window that crosses a join between source spans is listed in `dropped` with reason `crosses_source_span`, as a single sentence is. Two sentences more than one apart, a sentence of another unit, and a table cell are never read as a pair.
+
 **Limits (P5).**
 - The rules cover the nine supported question types. Name and place extraction is not attempted (D47), so `who` and `where` answers are passages only.
 - Written numbers (`three days`) are not values. A passage with only a written number cannot give a `how_many` answer span.
 - Only the candidates that retrieval returned are examined, so the retrieval depth `k` limits recall.
-- A target term must appear in the same sentence as the value or marker. An answer split across two sentences is not found.
+- A target term must appear in the same sentence as the value or marker, except for `when`, `how_many` and `whether` questions, where P14 also reads one neighbouring sentence of the same unit (see Sentence pairs). An answer that needs a sentence two or more away, or a sentence of another unit, is not found.
 - The abbreviation list and the marker lists are uncalibrated heuristics. They are reviewed on the public corpus, and the counts of how often each rule fires are recorded in `PROGRESS.md` (P5). Nothing is tuned to a gold answer.
 
 ## 15. Evidence verification contracts (P6)
@@ -648,6 +658,8 @@ Implemented in `app/conflict` (`config.py`, `claims.py`, `detector.py`) and `app
 
 **16.2 Screen (D70; document-wide, independent of retrieval depth).** For a component of an answer type (when, how_many, whether) the screen takes every unit that contains each target term. It uses P3's exact check `find_phrase` once per target term and intersects the results by evidence ID, in `(pdf_page, ordinal)` order. Inside each unit, a piece is a sentence (a table cell or a conditions passage is one piece, as in P5) that contains every target term under `span_matches`. A derived table row is screened on its raw text. It cannot be CONFIRMED (§16.3). A component with no target term is not screened, so its candidates cannot pass the entity check (P6).
 
+For `when`, `how_many` and `whether` (P14, D133), a piece is also each sentence pair that the sentence-pair rule of §14 builds for the component, with the same four conditions. Its text and its claims are read from the pair. Without this, a value in a neighbouring sentence would be invisible to the screen, and an answer could be given while another passage states a different value. The counts in the response (`pieces_matched`) include the pairs.
+
 Claims of a piece, by question type:
 - `when`: its DATE and PERIOD values. Family `date` or `period`. Key: the normalized text (case folded, whitespace collapsed).
 - `how_many`: quantities (percent, currency, or a number with a unit) and bare numbers (no unit, not a range). A quantity's family comes from `config/conflict.toml`; a unit that is not listed forms its own family. Key: number and unit label, both normalized. A bare number has family `bare` and key: its number.
@@ -665,7 +677,7 @@ Comparing two claims: a bare number is compared with any quantity by its number.
 4. `CONFIRMED_INCOMPATIBLE`: the scope words are equal, the effective dates are equal (both empty, or the same set), and neither piece is a derived row.
 5. `POTENTIAL_DISCREPANCY`: any other case (one piece is dated and the other is not, or a derived row is involved).
 
-Equal claims give no relation and are counted as agreeing pairs. A piece is never compared with itself. Its claims are compared with the claims of every other piece, including another piece of the same unit. So a sentence that states 30 days and 45 days blocks an answer whenever another passage gives a differing value. Such a sentence cannot be the answer itself: P5 flags it (several values), and P6 does not accept a flagged candidate.
+Equal claims give no relation and are counted as agreeing pairs. A piece is never compared with itself. Two pieces that share a sentence (P14, D133) are never compared with each other either: a sentence pair is not compared with its own member sentence, nor with another pair that shares one. Pieces that share no sentence are compared as before. Its claims are compared with the claims of every other piece, including another piece of the same unit. So a sentence that states 30 days and 45 days blocks an answer whenever another passage gives a differing value. Such a sentence cannot be the answer itself: P5 flags it (several values), and P6 does not accept a flagged candidate.
 
 **Impact (D71).** `CONFIRMED_INCOMPATIBLE` and `EXPLICIT_SUPERSESSION` give the impact CONFLICT when both pieces are clean (verified source and not a derived row). Otherwise they give SOURCE. `DATED_CHANGE`, `DIFFERENT_SCOPE` and `POTENTIAL_DISCREPANCY` give AMBIGUOUS. Scope words choose only which label is shown. They never permit an answer, because ANSWERED needs the absence of every non-equal relation in the component. Supersession never grants an answer in V1: naming the superseding value needs a direction parser, which V1 does not have. The statement is shown and the answer abstains (SPEC §8, "only apply precedence when the document establishes it").
 
