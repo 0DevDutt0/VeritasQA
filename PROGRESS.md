@@ -69,6 +69,8 @@ Status values: `not started`, `in progress`, `complete`, `complete-with-limitati
 
 ## Priorities (the owner's order, 2026-11-06)
 
+The owner's main goal (2026-11-06): finish the project as soon as possible, with as few tokens as possible. Working rules for every session: read only the top of this file (up to the Decisions log) and this section, not the whole file; run only the clean test run stored under "How to resume"; no optional experiments or new rule tests unless the owner asks; keep replies short, and ask one question at a time in plain words.
+
 Work in this order. Each item needs the owner before the assistant can finish it.
 
 1. **The full document (blocker B1).** The plan describes a 100-page PDF. The one processed is 44 pages, and whether it's the intended file is still open. Owner action: confirm the 44-page file, or place the ~100-page PDF in `data/documents/` and name it. Until then, every result about the owner's document covers 44 pages only.
