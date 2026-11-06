@@ -1,5 +1,7 @@
 # VeritasQA
 
+![VeritasQA banner: a PDF page with one highlighted line and the page tag p. 50](docs/images/Thumbnail.png)
+
 **Ask a question about a PDF and get the exact sentence it came from, with its page number, or a clear reason why it cannot answer.**
 
 VeritasQA is a question-answering tool for documents such as policies, standards and manuals. It does not write answers of its own. Every answer is text copied word for word from the document, and when the evidence is not strong enough, it refuses and says why. It runs on your own computer: it needs no AI model, no API key and no internet connection to run.
