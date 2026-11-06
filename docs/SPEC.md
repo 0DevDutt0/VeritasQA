@@ -1,7 +1,7 @@
 # VERITASQA — MASTER ENGINEERING PROMPT
 ## Evidence-First, LLM-Free Document Question Answering
 
-> This file is a verbatim copy of the master engineering prompt supplied by the project owner. It is the authoritative specification. Architecture decisions live in `docs/ARCHITECTURE.md`; phase status lives in `PROGRESS.md`.
+> This file is a verbatim copy of the master engineering prompt supplied by the project owner. It is the authoritative specification. Architecture decisions live in `docs/ARCHITECTURE.md`; phase status is kept by the owner, outside this public repository.
 >
 > **Repository note (D17, 2026-11-04; written by the repository, not part of the owner's text):** for V1, decision D17 in `PROGRESS.md` governs where SPEC §4 (optional embeddings and cross-encoder reranking) and SPEC §13 (spaCy and NLTK) differ from the V1 plan. See `docs/ARCHITECTURE.md` §1A. The body below is unchanged.
 

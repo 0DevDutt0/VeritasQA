@@ -1,6 +1,6 @@
 # VeritasQA Architecture
 
-Status: P0 (foundation), revised 2026-11-04 by decision D17 to a deterministic, LLM-free and embedding-free V1. P0-CLEAN (2026-11-04) removed the historical GPU and model layers. This document is the design reference. The phase-by-phase execution plan and completion status are in [`PROGRESS.md`](../PROGRESS.md). The authoritative requirements are in [`SPEC.md`](SPEC.md); section references below use `SPEC §n`. Where SPEC §4 or §13 differ from the V1 plan, §1A and D17 govern.
+Status: P0 (foundation), revised 2026-11-04 by decision D17 to a deterministic, LLM-free and embedding-free V1. P0-CLEAN (2026-11-04) removed the historical GPU and model layers. This document is the design reference. The phase-by-phase execution plan and completion status are kept by the owner, outside this public repository. The authoritative requirements are in [`SPEC.md`](SPEC.md); section references below use `SPEC §n`. Where SPEC §4 or §13 differ from the V1 plan, §1A and D17 govern.
 
 ## 1. Purpose and non-goals
 

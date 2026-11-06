@@ -64,3 +64,6 @@ nltk_data/
 # --- Personal notes (not part of the repository) ---
 # The GitHub profile checklist is a personal file, not project documentation.
 /github.md
+
+# The owner's working log stays on disk and out of the public repository (decision D139, 2026-11-06).
+/PROGRESS.md
