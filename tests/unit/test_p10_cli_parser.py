@@ -15,12 +15,12 @@ from app.api.cli import DEFAULT_EXTRACTED_ROOT, DEFAULT_RUN_DIR, REPO_ROOT, buil
 GOLD = Path(__file__).resolve().parents[1] / "fixtures" / "p8_synthetic_gold.jsonl"
 
 
-def test_help_lists_the_four_commands(capsys):
+def test_help_lists_the_five_commands(capsys):
     with pytest.raises(SystemExit) as exc:
         main(["--help"])
     assert exc.value.code == 0
     text = capsys.readouterr().out
-    for command in ("ingest", "ask", "report", "evaluate"):
+    for command in ("ingest", "ask", "report", "evaluate", "compare"):
         assert command in text
 
 

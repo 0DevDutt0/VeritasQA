@@ -31,6 +31,9 @@ data/extracted/*
 data/indexes/*
 !data/indexes/.gitkeep
 data/evaluations/runs/
+# Comparison reports quote the documents they compare, so they stay local (P15, ARCHITECTURE §20.5).
+data/reports/*
+!data/reports/.gitkeep
 # Gold answer files (questions, answers and quotations) stay local. The owner asked on 2026-11-05 that they not be
 # pushed (decision D100). The placeholder file stays tracked.
 data/evaluations/gold/*

@@ -864,10 +864,11 @@ Implemented in `app/api` (`cli.py`, `__main__.py`). The package is an adapter. N
 **19.1 Invocation.** `python -m app.api <command> ...`, run from the repository root. There is no console script in V1. Default paths are relative to the repository root, not to the working directory.
 
 **19.2 Commands.**
-- `ingest PDF --store STORE [--extracted-root DIR]`: validates and extracts the file (`extract_document`, which writes the report, the page texts and the renders under `DIR/<document_id>/`), builds the structure (`build_structure`) and stores both (`Store.write_document`). The document id is the one `document_id_for` derives from the file's SHA-256 (`app/ingestion/validate.py`), so ingesting the same file again replaces that document's rows and adds no second copy. The store is created when it is missing. `DIR` defaults to `data/extracted`.
+- `ingest PDF --store STORE [--extracted-root DIR] [--against ID] [--report-dir DIR]`: validates and extracts the file (`extract_document`, which writes the report, the page texts and the renders under `DIR/<document_id>/`), builds the structure (`build_structure`) and stores both (`Store.write_document`). The document id is the one `document_id_for` derives from the file's SHA-256 (`app/ingestion/validate.py`), so ingesting the same file again replaces that document's rows and adds no second copy. The store is created when it is missing. `DIR` defaults to `data/extracted`. After the store write it runs the document comparison against an earlier version of the same file (§20). The result is the `qa` field of the output. `--against ID` names that earlier version. `--report-dir DIR` (default `data/reports`, git-ignored) receives the text report.
 - `ask --store STORE --document-id ID QUESTION`: runs `answer()` for that one document and prints the `QAResponse` (SPEC §10). Every status is a normal result with exit code 0, including the abstentions.
 - `report --store STORE [--document-id ID]`: read only. Without an id it lists the documents in the store (id, source name, page count, creation time). With an id it prints the document record, one row per page (page number, status, quality status, extraction method and warning codes), the counts of sections and units by content type, and the structure issues by code.
 - `evaluate --store STORE --document-id ID --gold FILE --split {dev,heldout} [--final-run] [--output-dir DIR] [--run-id ID]`: runs `run_evaluation` once (§17.12). `DIR` defaults to `data/evaluations/runs`, which is git-ignored. A held-out run needs `--final-run`, as §17.5 and D84 require. The run writes one `evaluations` row to the store.
+- `compare --store STORE --document-id ID [--against ID] [--report-dir DIR]`: compares two documents that are already in the store (§20), without ingesting again. `--document-id` is the newer document. Without `--against`, the earlier version is the one stored with the same file name. It prints one JSON object with the `qa` field, as `ingest` does.
 
 **19.3 Output.** Standard output carries exactly one JSON object: UTF-8, sorted keys, no colour codes. Standard error carries nothing on success. On failure it carries one JSON object, `{"error": {"type": ..., "message": ...}}`, and the message names the cause (a missing store, an unknown document, the held-out flag and so on).
 
@@ -885,3 +886,35 @@ Implemented in `app/api` (`cli.py`, `__main__.py`). The package is an adapter. N
 - Sweeps are not exposed. `run_sweep` is called from Python.
 - A held-out run can be repeated under a new run id. `--final-run` is a procedure, not a proof (D84).
 - `ask` takes its policy, retrieval and conflict settings from `config/`. The command line has no options for them.
+
+## 20. Document comparison on upload (P15)
+
+Implemented in `app/comparison`, a pure package with no store, file or command-line code. `app/api/cli.py` reads the stored records, calls it and writes the report. The store schema does not change: the comparison reads the `documents` rows and the `pages` rows (`raw_text`, `status`, `warnings_json`). It uses only the standard library (`difflib`, `hashlib`, `re`).
+
+**20.1 Choosing the earlier version (`select_earlier`).**
+- Matching is by file name (`source_name`), without regard to case. The document being ingested is never its own candidate.
+- Without `--against`, if the same file was already in the store before the ingest (same document id, so same SHA-256), the status is `identical`. Nothing is compared. With `--against`, the named version is compared as usual.
+- One candidate: it is compared. None: the status is `not_run`, and the reason says so. Two or more: `not_run`, with their ids in `candidates`. The owner then names one with `--against`.
+- `--against` must be a document in the store. The CLI checks it before the new document is written, so a mistyped id stores nothing. `--against` naming the document being ingested is an error.
+- `compare` takes two documents already in the store. Both ids must exist and differ.
+
+**20.2 Aligning pages.** Each page's text is normalized (§20.3) and reduced to a key: the SHA-256 of the normalized text, or the empty key when there is no text. `difflib.SequenceMatcher` (`autojunk` off) aligns the two key sequences, so an inserted or removed page does not mark the later pages as changed. Inside a replace block, pages are paired by word similarity (ratio at least 0.5, best pairs first). Pages left over are paired in order as changed; any still left over are added or removed. A removed page whose normalized text equals an added page's is reported as moved.
+
+**20.3 Normalization.** A hyphen (`-`, U+2010 or U+00AD) at a line end is removed, and the next line is joined to it. Then every run of whitespace becomes one space, and the text is trimmed. Case, digits and punctuation are kept, so any other change is reported.
+
+**20.4 Page outcomes.**
+- `unchanged`: equal keys, and both pages are readable.
+- `changed`: a word-level difference. Each change shows up to six words of context before it, the removed words and the added words. The page numbers are shown on both sides.
+- `moved`, `added`, `removed`: as in §20.2.
+- `not_comparable`: one side has no text and its status is not `BLANK` (for example `SCANNED`, an image with no text layer). A `BLANK` page with no text on both sides is `unchanged`.
+- Each listed difference shows the warning codes of both pages, so a page with a warning is compared and the warning is shown beside it.
+
+**20.5 Output.** `ingest` and `compare` print the `qa` object. Its `status` is `compared`, `identical` or `not_run`, and `reason` always says why. A `compared` object has `text_identical`, `counts`, `notices`, `differences` and the page counts. `notices` says when the two versions were extracted with different extractor versions or settings, so some differences may come from the extraction. The text report is written to `DIR/<new id>-vs-<earlier id>.txt`. If the write fails, `qa.report_error` says so, and the command still exits 0, because the store already holds the document.
+
+**20.6 Limits.**
+- The comparison is text only. A change to an image or a chart shows only if the text changes.
+- It shows where the text changed, not whether the change matters.
+- A printed page number that changes after an inserted page shows as a changed word on that page.
+- A page that moved and also changed is reported as removed and added.
+- Only a hyphen at a line end is joined. A word that is hyphenated across two lines in one version and printed whole in the other is reported as changed.
+- Pages with no readable text are not compared. Their status is `not_comparable` until OCR is installed (B2).
