@@ -1066,12 +1066,13 @@ No `nvidia-*` package is installed. The CUDA runtime files (cudart, cublas, cudn
 - **Answer given (2026-11-06):** not over. P15 comes first.
 - **Requirements, for when it starts:**
   1. Written for recruiters, HR and founders first, then engineers. Plain words; a technical term is defined the first time it appears, or avoided.
-  2. Lead with what the system does and why it is different: it answers only from text it can quote and cite by page, it refuses when the evidence is weak, and it runs without any AI model. Show one real example from the current code.
+  2. Benefit-led and realistic. Lead with the benefits, in claims that are true: no AI model writes any answer, so the system cannot invent answer text; every answer is a quotation from the document, shown with its page and checked before it appears; when the evidence is weak, it refuses rather than guesses. Show one real example from the current code. Do not use absolute words ('completely', 'never', 'guaranteed', 'perfect', 'any document'). 'No hallucination' is not claimed as absolute: the system can still choose a passage that does not answer the question, and two recorded answers were scored wrong at the span edges (D113).
   3. Include the document QA (P15) once it has shipped.
-  4. Show the measured results in one table, copied from the recorded runs, with their limits. The first screen must show the low answer coverage: one correct answer across the 187 development questions in six sets, and none of the 14 held-out questions accepted. Do not claim results on the owner's document beyond the recorded ones.
-  5. Never name or quote the owner's private document. Keep phase and decision labels out.
-  6. Recommendation: make README.md the plain front page, and move the setup and technical detail into a linked file under `docs/`. The owner confirms this when P16 starts.
-  7. `github.md` stays git-ignored.
+  4. Show the measured results in one table, copied from the recorded runs. Each row names its scope: the documents, with page counts taken from the store. The table includes the answer coverage: one correct answer across the 187 development questions in six sets, and none of the 14 held-out questions accepted. The table does not have to be on the first screen, but it must be in the README. Do not claim results on the owner's document beyond the recorded ones.
+  5. A short 'What it does not do' section in plain words, for example: it answers only some kinds of question, it does not read scanned pages without the OCR tool, and it compares text only.
+  6. Never name or quote the owner's private document. Keep phase and decision labels out. Say what was tested. The 100-page design target does not have to appear, but no sentence may claim the system was tested on 100-page documents unless one was run.
+  7. Recommendation: make README.md the plain front page, and move the setup and technical detail into a linked file under `docs/`. The owner confirms this when P16 starts.
+  8. `github.md` stays git-ignored.
 
 ---
 
