@@ -181,14 +181,13 @@ def test_a_generated_table_row_that_disagrees_blocks_the_answer_but_cannot_be_ca
     store.close()
 
 
-def test_a_passage_only_question_returns_its_passages_for_inspection_without_an_answer():
+def test_a_fact_question_can_extract_the_value_from_a_verbatim_definition():
     store = _store(main_items())
     response = _run(store, "What is the fee for loans?")
-    assert response.status == DecisionStatus.INSUFFICIENT_EVIDENCE
-    assert response.answer_spans == ()
-    assert "no_verified_answer" in {code.value for code in response.reason_codes}
-    assert any(item.quote and "The fee for loans is 5 USD" in item.quote for item in response.evidence)
-    assert all("passage" in item.roles or "conflicting" in item.roles for item in response.evidence)
+    assert response.status == DecisionStatus.ANSWERED
+    assert [span.text for span in response.answer_spans] == ["5 USD"]
+    assert any(item.quote and "The fee for loans is 5 USD" in item.quote and "answer" in item.roles
+               for item in response.evidence)
     store.close()
 
 

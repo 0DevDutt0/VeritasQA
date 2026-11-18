@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 from app.document_structure.models import ContentType, DocumentStructure
-from app.ingestion.models import ExtractedDocument
+from app.ingestion.models import ExtractedDocument, ExtractionMethod, QualityStatus
 
 
 def check_invariants(extracted: ExtractedDocument, structure: DocumentStructure) -> None:
@@ -43,8 +43,12 @@ def check_invariants(extracted: ExtractedDocument, structure: DocumentStructure)
             assert unit.content_type in (ContentType.HEADER, ContentType.FOOTER), unit.evidence_id
         if unit.derived:
             assert unit.content_type == ContentType.TABLE_ROW, unit.evidence_id
-        if unit.extraction_quality.value == "verified":
-            assert page.quality_status.value == "verified", f"{unit.evidence_id} is verified on a non-OK page"
+        if unit.extraction_quality == QualityStatus.VERIFIED and page.quality_status != QualityStatus.VERIFIED:
+            assert page.quality_status == QualityStatus.WARNING
+            assert page.extraction_method == ExtractionMethod.NATIVE_TEXT
+            assert page.hidden_chars == 0
+            codes = {issue.code for issue in page.issues if issue.severity == "warning"}
+            assert codes and codes <= {"reading_order_uncertain", "table_detected"}
 
     for page_number, page_units in per_page.items():
         ordinals = [unit.ordinal for unit in page_units]

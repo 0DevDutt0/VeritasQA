@@ -53,7 +53,7 @@ LIMITATIONS = (
     "Means (MRR, nDCG and token F1) carry n and no interval in this phase.",
     "The extraction measures of SPEC §11 are not computed here (ARCHITECTURE §17.14).",
     "The risk-coverage ordering uses retrieval rank only. It is an ordering, not a probability (SPEC §9).",
-    "Passage-only question types abstain by design (PROGRESS.md decisions D65 and D73). Read the breakdown by type.",
+    "Exact answer scores use the reference text. Read the evidence and question-type breakdowns alongside them.",
 )
 
 

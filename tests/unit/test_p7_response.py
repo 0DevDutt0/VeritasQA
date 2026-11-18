@@ -85,7 +85,7 @@ def _response(**changes) -> QAResponse:
 
 def test_a_consistent_answered_response_is_accepted_and_round_trips():
     response = _response()
-    assert response.engine_version == "decision.v1"
+    assert response.engine_version == "decision.v2"
     again = QAResponse.model_validate(response.model_dump(mode="json"))
     assert again == response
 

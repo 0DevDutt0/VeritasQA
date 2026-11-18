@@ -33,6 +33,7 @@ class QuestionType(StrEnum):
     WHEN = "when"
     WHERE = "where"
     HOW_MANY = "how_many"
+    HOW = "how"
     WHICH = "which"
     WHETHER = "whether"
     CONDITIONS = "conditions"
@@ -100,6 +101,10 @@ _TOKEN = re.compile(r"[A-Za-z0-9]+(?:[-'’.][A-Za-z0-9]+)*")
 # separator open a question and the words before it already form one.
 _SEPARATOR = re.compile(r"\s*[;,]?\s+(?:and|or)\s+|\s*;\s*")
 _QUESTION_END = re.compile(r"\?\s*(?=\S)")
+LEADING_REFERENCE = re.compile(
+    r"^(?:according\s+to|under|in|per)\s+(?!(?:what|which|whose|where|when|how|why)\b)[^,]+,\s+", re.IGNORECASE,
+)
+_DIRECTIONAL_COMPARISON = re.compile(r"^how\s+(?:does|do|is|are)\s+.+\s+compar(?:e|es|ed)\s+(?:to|with)\s+.+$")
 
 # Each rule is tested against the lower-cased component text, in this order. The first match sets the type.
 _TYPE_RULES: tuple[tuple[re.Pattern[str], QuestionType, str], ...] = (
@@ -115,7 +120,7 @@ _TYPE_RULES: tuple[tuple[re.Pattern[str], QuestionType, str], ...] = (
     ),
     (
         re.compile(
-            r"^how\s+(?:many|much|long|often|far|old|large|big|high|frequently)\b"
+            r"^how\s+(?:many|much|long|often|far|old|large(?!\s+(?:a|an)\s)|big|high|frequently)\b"
             r"|^what\s+(?:percentage|percent|proportion|share|fraction|amount|number|quantity|total|sum|rate)\b"
         ),
         QuestionType.HOW_MANY,
@@ -156,6 +161,11 @@ _TYPE_RULES: tuple[tuple[re.Pattern[str], QuestionType, str], ...] = (
         "type.whether.aux.v1",
     ),
     (re.compile(r"^what\b"), QuestionType.WHAT, "type.what.v1"),
+    (
+        re.compile(r"^how\s+(?:is|are|was|were|does|do|can|could|should|must|quickly|difficult|large)\b"),
+        QuestionType.HOW,
+        "type.how.clause.v1",
+    ),
 )
 
 # Subject patterns for a comparison (D52). Each one must name both subjects, or it does not match.
@@ -339,10 +349,10 @@ def _comparison_components(
 def _component_for(components: list[QuestionComponent], raw: str) -> list[QuestionComponent]:
     text = raw.strip(_COMPONENT_EDGE)
     words = _words(text)
-    if any(word in COMPARISON_MARKERS for word in words):
+    lowered = LEADING_REFERENCE.sub("", text).lower()
+    if any(word in COMPARISON_MARKERS for word in words) and not _DIRECTIONAL_COMPARISON.match(lowered):
         return _comparison_components(components, text, words)
 
-    lowered = text.lower()
     matched = next(((rule, kind, name) for rule, kind, name in _TYPE_RULES if rule.search(lowered)), None)
     attributes = _attribute_terms(words)
     negated = any(_is_negation(word) for word in words)

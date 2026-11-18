@@ -388,7 +388,7 @@ Implemented in `app/common/text.py` (normalization) and `app/document_structure/
 - `source_spans` are half-open offsets into the page's `raw_text`. The unit's `raw_text` is the newline join of its spans. Lines whose raw gap holds only whitespace share one span, so a paragraph that crosses P1 blocks stays one verbatim slice, with the page's own separator inside it. Only table cells and rows can have several spans, because their lines are not adjacent. A single-span unit satisfies `raw_text == page_raw_text[start:end]`. P3 needs one `source_locations` row per span (ARCHITECTURE §6).
 - `index_text` is a normalized derivative of `raw_text`, used only for retrieval. A table cell's `index_text` is `caption | row_header | col_header | value` (empty parts skipped), so a number is never indexed without its row and column.
 - `heading_text` is the chain of section titles, joined with ` > `.
-- `extraction_quality` inherits the page's quality (`verified`, `warning` or `unverified`). It is forced to `unverified` when any line of the unit has `hidden_chars > 0` (D20).
+- `extraction_quality` starts with the page's quality. On a native-text page with layout-only warnings, a unit can be verified when its visible lines follow one vertical run and clear the overlap and text-quality checks. Table cells also need reliable geometry. Any hidden line makes its unit unverified.
 - `body_retrieval` is `false` for `header` and `footer` units. They are kept and never deleted.
 - `derived` is `true` only for `table_row` units. Their `raw_text` is the verbatim cell text in column order, so their spans point at real text. Their `index_text` is generated (`caption | row_header | col_header = value; ...`). P6 must never quote a derived `index_text`.
 - `prev_id` and `next_id` chain every unit of the document in page order, across pages, including derived rows.
@@ -417,7 +417,7 @@ Implemented in `app/common/text.py` (normalization) and `app/document_structure/
 - A P1 line belongs to a cell when its centre lies inside the cell box (1 pt tolerance). Lines outside every cell stay paragraphs.
 - The first row is the header row. Its cells are `table_cell` units with `row_index` 0, and they supply `col_header` to the cells below.
 - For each body row there is a `table_row` unit (`derived`), then one `table_cell` unit per non-empty cell, in column order. A cell's `parent_id` is its row unit. Its `row_header` is the text of the row's first cell, and its `col_header` is the header cell of its column.
-- `table_id` is `{document_id}:p{page:04d}:t{n:02d}`, numbered per page from 1. The nearest caption on the same page, within 15% of the page height from the table box, is attached as `caption`.
+- `table_id` is `{document_id}:p{page:04d}:t{n:02d}`, numbered per page from 1. The nearest numbered caption within 15% of the page height is attached. A table at the top of the next page can inherit the caption when the section, repeated headers and horizontal edges agree.
 - `table_header_uncertain` (warning) is raised when every header cell is numeric. Such cells become `warning`.
 - A `TableCell` record mirrors ARCHITECTURE §6: `evidence_id`, `table_id`, `row_index`, `col_index`, `row_header`, `col_header`, `caption`.
 
@@ -680,23 +680,29 @@ Rule 5's source test uses the verifier's check statuses, not the text of the rea
 
 **16.5 Overall status (D72).** ANSWERED when every component is ANSWERED. PARTIAL when at least one component is ANSWERED and at least one is not (the response still lists each component's own status). Otherwise the first of CONFLICT, SOURCE_UNVERIFIED, AMBIGUOUS_QUERY and INSUFFICIENT_EVIDENCE that any component has. A single-component question is never PARTIAL.
 
-**16.6 Passage-only types (D73).** `what`, `who`, `where`, `which`, `conditions` and `comparison` are never ANSWERED (D65). Their candidates are returned as evidence for inspection, with `no_verified_answer`, and the status is INSUFFICIENT_EVIDENCE. The six SPEC §9 statuses are the only ones, so no seventh status is added. This choice is recorded for the owner to confirm.
+**16.6 Passages for inspection.** Questions without a supported extraction rule can return matching passages with `no_verified_answer`. Broad conditions questions and comparisons with separately named subjects use this path. See §16.10 for the additional clause rules.
 
 **16.7 Response model (D74).** `QAResponse` is a frozen Pydantic model that forbids extra fields. Its sections are kept apart (SPEC §10): `status`, `question`, `answer_spans`, `evidence`, `warnings`, `reason_codes`, then `components`, `retrieval`, `verification`, `conflicts`, `screening`, `policy` and `engine_version`. Validated invariants (tests pin each one):
 - answer spans appear only when the status is ANSWERED or PARTIAL;
 - ANSWERED means every component is ANSWERED; PARTIAL means a mix of answered and not answered components;
 - every answer span names an evidence item of the response, and its text equals the item's quote at the span's page offsets;
 - every quoted evidence item has `source_end - source_start == len(quote)`;
-- BM25 appears only as a raw rank with its score labelled raw and uncalibrated, never as a probability (SPEC §9).
+- BM25 entries expose their raw score. Clause retrieval entries expose `lexical_score` and `via: extractive`. These scores rank passages within the search.
 
 **16.8 Determinism (D74).** The same PDF bytes, question, retrieval configuration, conflict configuration and policy give equal responses. Order: components in question order; evidence by `(pdf_page, ordinal)`; relations in piece order, then claim order. The test compares two independent runs.
 
 **16.9 Limits (P7).**
 - The screen covers passages that contain every target word exactly (D58). A passage that states the same fact with other words is not screened. A passage with the subject words and no value is not a claim.
 - A bare number is compared with the answer by its number. A sentence with an unrelated bare number (for example `after 2 approvals`) can therefore block an answer. This is the safe direction, and it costs recall.
-- Supersession never grants an answer (above). Passage-only types never pass (D65).
+- Supersession sends the decision to conflict screening. Questions without an applicable extraction rule can still return passages for inspection.
 - The scope and date tests are heuristics, reviewed by reading. They choose labels, and every case without an answer is an abstention. None is calibrated on gold data (B1, B3).
-- A PASS is still candidate-level evidence. The answer is the decision's output, and it has been checked only on synthetic documents, because the public corpus has no PASS on a verified page (P6, D62).
+- A PASS applies to one candidate. The final answer also depends on the decision and conflict checks.
+
+**16.10 Clause-based answers (`decision.v2`).** When the exact path abstains, a second search ranks clauses from the same document using normalized English word forms, a small synonym vocabulary and document-local term frequencies. Literal identifiers and numerals still have to agree with the clause or its table labels. The same path can refine a span within its already verified quotation.
+
+Rules bind a number to its counted noun, a date to its time clause, a permission to its requested action, or a fact to an explicit relationship. A named table can supply context from its row and column labels. Each candidate must have one contiguous source quotation. Verification re-derives the proposed span from the stored text and applies the existing acceptance policy. Conflicts reported by the exact path keep their priority, and competing clause matches for a single answer can also cause abstention.
+
+Ingest the PDF again to rebuild units and table context for a store created with `p2-structure-1`. Both versions use the same SQLite schema.
 
 ## 17. Evaluation contracts (P8a)
 
@@ -720,7 +726,7 @@ Implemented in `app/evaluation` (`errors.py`, `text.py`, `gold.py`, `scoring.py`
 
 A record is **answerable** when `expected_status` is `ANSWERED` or `PARTIAL`. Otherwise it is **unanswerable**. A component index is **expected answerable** when the record is answerable and the record has gold evidence for that index.
 
-**Passage-only types (D88).** A question of a type that the system never answers by design (`what`, `who`, `where`, `which`, `conditions`, `comparison`) is labelled answerable when the document answers it. Its gold record has evidence and no answer spans, because these types return passages and not spans. The harness scores the design abstention as an incorrect abstention, and §17.10 shows it by question type.
+**Passage-based reference answers (D88).** A question is labelled answerable when the document supports it. Some gold records specify a supporting quotation without an exact answer span. The harness uses the quotation as the reference for those records and reports misses by question type in §17.10.
 
 **17.3 Validation, layer 1: the file alone (D77).** `GoldRecord` refuses: an answer on an unanswerable record; an answerable record with no evidence; an answer whose normalized text does not occur in a normalized evidence quote of the same component; a duplicate `record_id`; a line that is not valid JSON (the error names the line); an empty file.
 

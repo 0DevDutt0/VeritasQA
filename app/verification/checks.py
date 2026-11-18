@@ -12,6 +12,8 @@ from dataclasses import dataclass
 
 from app.common.errors import StorageError
 from app.document_structure.models import EvidenceUnit
+from app.evidence.extractive import EXTRACTIVE_TYPES
+from app.evidence.extractive import RULE_ID as EXTRACTIVE_RULE_ID
 from app.evidence.markers import find_markers
 from app.evidence.selection import AnswerCandidate
 from app.evidence.values import Value, ValueKind, find_values
@@ -140,7 +142,9 @@ def check_location(claim: Claim) -> CheckResult:
         problems.append("the extraction quality differs from the stored unit")
     if retrieval.derived != unit.derived:
         problems.append("the derived flag differs from the stored unit")
-    if candidate.rule_id != EXPECTED_RULE_IDS.get(candidate.question_type):
+    expected_rule = EXPECTED_RULE_IDS.get(candidate.question_type)
+    extractive = candidate.rule_id == EXTRACTIVE_RULE_ID and candidate.question_type in EXTRACTIVE_TYPES
+    if candidate.rule_id != expected_rule and not extractive:
         problems.append(f"rule {candidate.rule_id} does not belong to this question type")
     start, end = candidate.page_start, candidate.page_end
     inside = any(first <= start and end <= last for first, last in unit.source_spans)
@@ -153,6 +157,19 @@ def check_location(claim: Claim) -> CheckResult:
         CheckStatus.PASS,
         f"body text on page {unit.pdf_page}, with the quote inside one of the unit's source spans",
     )
+
+
+def answer_offsets(claim: Claim) -> CheckResult:
+    candidate = claim.candidate
+    name = CheckName.ANSWER_SPAN
+    first, last = candidate.answer_page_start, candidate.answer_page_end
+    if first is None or last is None:
+        return _result(name, CheckStatus.FAIL, "the stored span has no page offsets")
+    if not candidate.page_start <= first < last <= candidate.page_end:
+        return _result(name, CheckStatus.FAIL, "the stored span lies outside the quote")
+    if claim.page_text is None or claim.page_text[first:last] != candidate.answer_span:
+        return _result(name, CheckStatus.FAIL, "the stored span is not the page text at its offsets")
+    return _result(name, CheckStatus.PASS, "the stored span is verbatim at its page offsets")
 
 
 def check_answer_span(claim: Claim) -> CheckResult:
@@ -172,13 +189,10 @@ def check_answer_span(claim: Claim) -> CheckResult:
         reasons = [BLOCKING_FLAG_REASONS[flag] for flag in candidate.flags if flag in BLOCKING_FLAG_REASONS]
         detail = "; ".join(reasons) if reasons else "the passage has no value or marker of the required kind"
         return _result(name, CheckStatus.UNRESOLVED, f"no answer span: {detail}")
-    if candidate.answer_page_start is None or candidate.answer_page_end is None:
-        return _result(name, CheckStatus.FAIL, "the stored span has no page offsets")
+    offsets = answer_offsets(claim)
+    if offsets.status != CheckStatus.PASS:
+        return offsets
     first, last = candidate.answer_page_start, candidate.answer_page_end
-    if not candidate.page_start <= first < last <= candidate.page_end:
-        return _result(name, CheckStatus.FAIL, "the stored span lies outside the quote")
-    if claim.page_text is None or claim.page_text[first:last] != candidate.answer_span:
-        return _result(name, CheckStatus.FAIL, "the stored span is not the page text at its offsets")
     eligible = _eligible(claim)
     if len(eligible) != 1:
         return _result(
@@ -400,14 +414,14 @@ def check_condition(claim: Claim) -> CheckResult:
 
 
 def check_source_quality(claim: Claim) -> CheckResult:
-    """SPEC §7 check 11. Only a verified page counts as clean (D62). A flagged page is UNRESOLVED, with its issues."""
+    """SPEC §7 check 11. Require a verified source unit and report any outstanding page warnings."""
     name = CheckName.SOURCE_QUALITY
     unit = claim.unit
     if unit is None:
         return _result(name, CheckStatus.UNRESOLVED, "the unit cannot be read (see the location check)")
     quality = unit.extraction_quality
     if quality == QualityStatus.VERIFIED:
-        return _result(name, CheckStatus.PASS, "the page is verified")
+        return _result(name, CheckStatus.PASS, "the source unit is verified")
     codes = _page_codes(claim)
     if codes is None:
         detail = "its stored issues cannot be read"
@@ -418,7 +432,7 @@ def check_source_quality(claim: Claim) -> CheckResult:
     return _result(
         name,
         CheckStatus.UNRESOLVED,
-        f"the page is {quality.value}; only a verified page counts as clean (D62); {detail}",
+        f"the source unit is {quality.value}. The unit must be verified. {detail}",
     )
 
 

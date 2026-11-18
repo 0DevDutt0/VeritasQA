@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.ingestion.models import Box, QualityStatus
 
-STRUCTURE_VERSION = "p2-structure-1"
+STRUCTURE_VERSION = "p2-structure-2"
 
 
 class ContentType(StrEnum):

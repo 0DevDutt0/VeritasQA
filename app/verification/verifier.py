@@ -9,12 +9,14 @@ part of the verdict, so a PASS here is a candidate-level result, not a final ans
 from __future__ import annotations
 
 from app.common.errors import StorageError
+from app.evidence.extractive import RULE_ID as EXTRACTIVE_RULE_ID
 from app.evidence.selection import AnswerCandidate
 from app.question_processing.analysis import QuestionAnalysis, QuestionComponent, QuestionType
 from app.retrieval.terms import extract_terms
 from app.storage import Store
 from app.verification.checks import CHECKS, Claim
 from app.verification.errors import VerificationError
+from app.verification.grounding import extractive_checks
 from app.verification.report import CheckName, CheckResult, CheckStatus, Verdict, VerificationReport
 from app.verification.vocabulary import EXPECTED_RULE_IDS, VERIFIER_VERSION
 
@@ -104,6 +106,7 @@ def verify(
         unit=store.load_unit(document_id, candidate.evidence_id),
         question_terms=extract_terms(component.text),
     )
+    extractive = extractive_checks(claim) if candidate.rule_id == EXTRACTIVE_RULE_ID else {}
     results: dict[CheckName, CheckResult] = {}
     for name in ORDER:
         if name in PENDING:
@@ -113,6 +116,8 @@ def verify(
                 status=CheckStatus.PENDING,
                 reason=_CONFLICT_REASON,
             )
+        elif name in extractive:
+            results[name] = extractive[name]
         else:
             results[name] = CHECKS[name](claim)
     checks = tuple(results[name] for name in ORDER)

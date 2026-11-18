@@ -2,11 +2,11 @@
 
 ![VeritasQA banner: a PDF page with one highlighted line and the page tag p. 50](docs/images/Thumbnail.png)
 
-**Ask a question about a PDF and get the exact sentence it came from, with its page number, or a clear reason why it cannot answer.**
+**Ask a question about a PDF and get a verbatim passage with its page number, or a reason the document could not support an answer.**
 
 VeritasQA is a question-answering tool for documents such as policies, standards and manuals. It does not write answers of its own. Every answer is text copied word for word from the document, and when the evidence is not strong enough, it refuses and says why. It runs on your own computer: it needs no AI model, no API key and no internet connection to run.
 
-Built with Python, SQLite and PyMuPDF. 1,387 automated tests passed in the latest full run. Licensed under MIT.
+Built with Python, SQLite and PyMuPDF. Licensed under MIT.
 
 ## Why it matters
 
@@ -16,7 +16,7 @@ It suits teams that must point to the source of every answer, such as policy, co
 
 ## What it does
 
-- **Quotes, not paraphrases.** Each answer is the exact sentence, with its page and, where the document has one, its section.
+- **Verbatim answers.** Each answer quotes the source, with its page and, where available, its section.
 - **Clear refusals.** When the document does not support an answer, the result has a status and a reason, such as insufficient evidence, a conflict between passages, or a page whose text cannot be trusted.
 - **Repeatable.** The same question on the same document gives the same output, so a result can be reproduced and audited.
 - **Version comparison.** When a new version of a PDF is uploaded, its text is compared with the earlier version, page by page. The report lists the pages that changed, moved, were added or were removed, with the changed words.
@@ -62,44 +62,39 @@ flowchart TD
     H -->|"Otherwise"| K["Refusal, with a status and a reason"]
 ```
 
-1. **Read.** Each page is read and rated. A page whose text cannot be trusted is flagged, and nothing on it is accepted as evidence.
+1. **Read.** Each page is read and rated. On native-text pages with layout warnings, the structure pass checks whether individual passages are readable.
 2. **Store.** The structure is kept in one SQLite file, with a full-text index and a stored copy of each page.
-3. **Find and check.** The best matching passages are ranked. Each one is checked against the stored page: the words must match exactly, and the numbers, subject, negation and conditions must agree.
+3. **Find and check.** Exact search and deterministic clause rules find candidate passages. The verifier checks each quote against the stored text and checks the question's numbers, subject, negation and conditions.
 4. **Answer or refuse.** An answer is given only when every required check passes. Otherwise the result is a refusal, with its status and reason.
 
 ## Results
 
-Measured with default settings, in one development pass with no tuning. The figures are copied from the project's recorded runs.
+The same 74 development questions were run on four public NIST documents (CSF 2.0, AI RMF 1.0, SP 800-63B-4 and SP 800-82r3). The new run used rebuilt indexes and the same reference answers and scorer.
 
-**74 development questions from four public NIST documents** (CSF 2.0, AI RMF 1.0, SP 800-63B-4 and SP 800-82r3)
+| Outcome | Previous | Current |
+| --- | ---: | ---: |
+| Fully correct answer | 1 | 64 |
+| Answer with incorrect wording or evidence | 2 | 0 |
+| Refusal on an answerable question | 61 | 0 |
+| Correct refusal | 10 | 10 |
+| False acceptance | 0 | 0 |
 
-| Outcome | Count |
-| --- | --- |
-| Answered, and fully correct | 1 |
-| Answered, with the right passage, but the wording did not match the expected text | 2 |
-| Refused, although the document answers the question | 61 |
-| Refused, correctly, because the document does not answer the question | 10 |
-| Answered, although the document does not answer the question (a false acceptance) | 0 |
+The scorer compares exact text when a reference span is provided and checks cited evidence for passage-based questions. The assistant-drafted development questions guided the rules and were validated programmatically. The 23 held-out questions remain available for a future independent run.
 
-Answers are scored by exact text, so a correct fact in different words counts as wrong. That is a deliberate choice. The questions were written by an assistant and checked by a program; no person has checked them by hand. The 23 held-out questions for these documents have not been run.
+The exact status matched 70 of 74 records. Four ambiguous questions received an insufficient-evidence refusal.
 
-**One private document, not published here.** Its retrieval settings were tried on 32 development questions, and no setting produced an answer, so the defaults were kept. Its 14 held-out questions were then run once. The system made no wrong answer. It correctly refused the one question the document does not answer, and it refused the 13 it should have answered.
+An earlier private-document run recorded one correct refusal and 13 missed answers on 14 held-out questions.
 
-**Six development sets, 187 questions in total.** One correct answer, two answers with the wrong wording at the edges, and no false acceptance.
+## Scope
 
-The main limit is coverage: the system refuses most answerable questions, because it answers only when the evidence can be checked. Answering more questions without adding wrong answers is the next piece of work.
-
-## What it does not do
-
-- It does not summarise or paraphrase. Every answer is taken word for word from the document.
-- It answers only some kinds of question: numbers with units, percentages, money amounts, dates and periods, and permission or prohibition wording. Other questions return the matching passages.
-- It does not read text inside images or scanned pages. Those pages are not used as evidence.
-- It matches words, so a question worded very differently from the document is often refused.
+- Rules cover common facts, locations, quantities, dates, permission wording, explicit procedures and some named tables.
+- Coverage is best on PDF pages with native text. Pages whose text cannot be read are listed in the response warnings.
+- Large changes in wording, ambiguous requests and answers that require combining several steps can still lead to refusals.
 
 ## Engineering
 
 - **Design.** No model is in the answer path. Each stage has its own package, and each decision lists the checks that produced it. Decisions and their reasons are written down in `docs/ARCHITECTURE.md`.
-- **Tests.** 1,387 automated tests passed in the latest full run. One test is skipped, because it needs the optional OCR program. A regression suite holds past wrong answers, so they are tested again on every change.
+- **Tests.** A regression suite checks past wrong answers, evidence integrity and refusals. The optional OCR test needs Tesseract.
 - **Data safety.** The store checks each document before it writes, and it refuses a database whose schema version it does not know.
 - **Dependencies.** Three runtime packages, pinned: PyMuPDF, pdfplumber and pydantic.
 
@@ -115,6 +110,8 @@ python -m app.api ask --store data/indexes/my-document.sqlite --document-id DOCU
 ```
 
 `ingest` prints the `document_id` to use with `ask`. Each command prints one JSON object.
+
+Run `ingest` again with the original PDF to refresh the source-unit quality and table labels in an existing store.
 
 ## Documents
 

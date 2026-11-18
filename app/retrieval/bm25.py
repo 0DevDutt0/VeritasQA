@@ -22,7 +22,7 @@ from app.retrieval.terms import Term, extract_terms
 from app.storage.retrieval_reads import UnitSummary
 from app.storage.store import Store
 
-Via = Literal["original", "expansion"]
+Via = Literal["original", "expansion", "extractive"]
 
 
 @dataclass(frozen=True)
@@ -63,6 +63,7 @@ class RetrievalCandidate:
     bm25_raw: float
     duplicate_evidence_ids: tuple[str, ...]
     context: ContextRef
+    lexical_score: float | None = None
 
     @property
     def expansion_only(self) -> bool:

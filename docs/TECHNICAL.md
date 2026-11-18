@@ -76,7 +76,7 @@ with Store.open(Path("data/indexes/my-document.sqlite")) as store:
 | `INSUFFICIENT_EVIDENCE` | No passage supports an answer. |
 | `AMBIGUOUS_QUERY` | The question cannot be searched as written, or the document gives different values that depend on scope or date. Nothing is chosen. |
 | `CONFLICT` | Two passages disagree. Both are shown, and neither is chosen. |
-| `SOURCE_UNVERIFIED` | The page's text quality cannot be trusted, so nothing is accepted from it. |
+| `SOURCE_UNVERIFIED` | The supporting source unit needs a text-quality or layout review. |
 
 ## Document comparison
 
@@ -91,7 +91,7 @@ Limits: the comparison is text only; a printed page number that changes after an
 | Ingestion | `app/ingestion` | Reads each page and rates its quality. Flags hidden text, scanned pages and damaged files. |
 | Structure | `app/document_structure` | Rebuilds sections, paragraphs, lists and tables, keeping the page and position of each passage. |
 | Storage | `app/storage` | SQLite with full-text search (FTS5), and a stored copy of every page. |
-| Retrieval | `app/retrieval` | Ranks candidate passages (BM25) and checks exact phrases. |
+| Retrieval | `app/retrieval` | Finds exact phrases with BM25 and ranks alternative clauses using document-local term frequencies. |
 | Question analysis and evidence | `app/question_processing`, `app/evidence` | Splits the question into parts, finds the passages, and gives an answer span only for supported types. |
 | Verification | `app/verification` | Re-checks each candidate: exact quotation, location, value, subject, negation, conditions, source quality and more. |
 | Decision | `app/decision`, `app/conflict` | Applies the acceptance rules, shows conflicts and chooses the status. |
@@ -101,9 +101,9 @@ Limits: the comparison is text only; a printed page number that changes after an
 
 ## Limitations
 
-- **Answer types.** Only numbers with units, percentages, money amounts, dates and periods, and permission or prohibition wording get an answer span. Other questions return passages.
-- **Matching is lexical.** Paraphrases are often missed. Synonym rules are supported, but none has been approved yet.
+- **Answer types.** Rules cover common facts, locations, quantities, dates, permissions and explicit procedures. Broad or ambiguous questions still lead to a refusal when the source does not establish a clear answer.
+- **Matching is lexical.** Word forms and a small synonym vocabulary improve coverage of English paraphrases. Large changes in wording can still lead to a refusal.
 - **Scanned pages and images.** No OCR is used, and images and screenshots are not read. A page that could not be verified is named in the answer's warnings, and nothing on it is accepted as evidence.
-- **Tables.** Borderless tables are not detected. Table values come back as passages, not answers, and derived table rows are not quoted.
-- **Tuning.** The page-quality thresholds and the acceptance settings are not tuned. On the private document, sweeping the retrieval settings changed nothing, so the defaults were kept.
+- **Tables.** Answering from a table requires reliable cell geometry and matching labels. Borderless tables and uncertain layouts have limited coverage.
+- **Older stores.** Run `ingest` again with the original PDF to refresh source-unit quality and table labels in place. The updated answer engine can also open existing stores.
 - **Scope of results.** The published results describe four public documents only. Two documents in one store are tested with small synthetic PDFs, and no answer crosses between them.

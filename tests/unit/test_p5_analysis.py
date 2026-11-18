@@ -23,6 +23,8 @@ def _types(question: str) -> list[QuestionType]:
         ("What is the deadline for the report?", QuestionType.WHEN),
         ("Where is the office located?", QuestionType.WHERE),
         ("How many days after approval must reports be filed?", QuestionType.HOW_MANY),
+        ("How is the fee calculated?", QuestionType.HOW),
+        ("According to Table 2, how long is the renewal period?", QuestionType.HOW_MANY),
         ("How much is the fee for gold accounts?", QuestionType.HOW_MANY),
         ("What percentage of staff completed training?", QuestionType.HOW_MANY),
         ("Which forms are required for a loan?", QuestionType.WHICH),
@@ -31,6 +33,7 @@ def _types(question: str) -> list[QuestionType]:
         ("Are visitors allowed in the lab?", QuestionType.WHETHER),
         ("Whether the fee is refundable?", QuestionType.WHETHER),
         ("Under what conditions is the fee waived?", QuestionType.CONDITIONS),
+        ("Under what conditions is the fee waived, for a rural branch?", QuestionType.CONDITIONS),
         ("What exceptions apply to the rule?", QuestionType.CONDITIONS),
         ("Compare the fees of gold and silver accounts.", QuestionType.COMPARISON),
     ],
@@ -45,7 +48,7 @@ def test_each_supported_question_word_gives_its_type(question, expected):
     "question, reason_part",
     [
         ("Why is the rule applied?", "why questions"),
-        ("How is the fee calculated?", "how questions about a process"),
+        ("How to calculate the fee?", "how questions about a process"),
         ("Explain the policy.", "does not open with a supported question word"),
     ],
 )

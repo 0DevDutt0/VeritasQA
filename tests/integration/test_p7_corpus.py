@@ -2,7 +2,7 @@
 
 The questions are the ones the P5 corpus test generates, so the three phases test the same questions. No expected status
 is written here. The gated checks are invariants that must hold on real text: every response validates; an answer
-needs an accepted candidate and no contradicting passage; passage-only types are never answered; every conflict is
+needs an accepted candidate and no contradicting passage; unsupported relations abstain; every conflict is
 shown in the response; and a second run gives the same response. The status counts are reported with ``-s``. They are
 property counts on real text, not a measurement on the owner's document (B1, B3).
 """
@@ -21,7 +21,7 @@ from tests.integration.test_p5_corpus import CREATED, DOCUMENTS, _generate, _pre
 
 pytestmark = pytest.mark.public_corpus
 
-PASSAGE_ONLY = frozenset({"what", "who", "where", "which", "conditions", "comparison"})
+PASSAGE_ONLY = frozenset({"conditions", "comparison"})
 DETERMINISM_SAMPLE = 40
 
 
@@ -54,7 +54,7 @@ def test_the_corpus_gives_questions_and_every_response_is_valid(run):
     assert responses, "the corpus must yield questions for this test to mean anything"
     for _document_id, _question, response in responses:
         assert response.status in DecisionStatus
-        assert response.engine_version == "decision.v1"
+        assert response.engine_version == "decision.v2"
 
 
 def test_an_answer_needs_an_accepted_candidate_for_each_span_and_no_contradicting_passage(run):

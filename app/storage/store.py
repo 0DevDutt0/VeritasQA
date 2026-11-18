@@ -182,6 +182,10 @@ class Store:
         units = repository.read_units(self._conn, document_id, evidence_id=evidence_id)
         return units[0] if units else None
 
+    def body_units(self, document_id: str) -> list[EvidenceUnit]:
+        """Read the document's non-derived body units with their original source spans."""
+        return repository.read_units(self._conn, document_id, body_only=True)
+
     def page_texts(self, document_id: str, pdf_pages: Iterable[int]) -> dict[int, str]:
         """The immutable raw text of each requested page. Quotations are slices of these strings."""
         return repository.read_page_texts(self._conn, document_id, pdf_pages)

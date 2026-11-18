@@ -341,9 +341,12 @@ def read_units(
     *,
     fts_match: str | None = None,
     evidence_id: str | None = None,
+    body_only: bool = False,
 ) -> list[EvidenceUnit]:
     """Units of one document in page order, each with its spans in span order."""
     where, params = _unit_filter(document_id, fts_match, evidence_id)
+    if body_only:
+        where += " AND u.body_retrieval = 1 AND u.derived = 0"
     rows = conn.execute(
         f"SELECT u.* FROM evidence_units AS u WHERE {where} ORDER BY u.pdf_page, u.ordinal",
         params,

@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.conflict.detector import ConflictRelation, Impact
 from app.ingestion.models import ExtractionMethod, QualityStatus
 
-ENGINE_VERSION = "decision.v1"
+ENGINE_VERSION = "decision.v2"
 
 
 class DecisionStatus(StrEnum):
@@ -195,6 +195,7 @@ class RetrievalEntry(BaseModel):
     via: str
     rule_ids: tuple[str, ...]
     raw_bm25: float
+    lexical_score: float | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class RetrievalSummary(BaseModel):

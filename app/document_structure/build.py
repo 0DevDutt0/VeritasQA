@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
@@ -32,10 +33,12 @@ from app.document_structure.segment import (
     plan_page,
 )
 from app.document_structure.tables import read_table_geometry
-from app.ingestion.models import Box, BlockRole, ExtractedDocument, ExtractedPage, Line, QualityStatus
+from app.ingestion.models import Box, BlockRole, ExtractedDocument, ExtractedPage, ExtractionMethod, Line, QualityStatus
+from app.ingestion.quality import text_profile
 
 _NUMERIC_TEXT = re.compile(r"^[\d\s.,%$()+\-–]+$")
 _STRUCTURED = frozenset({QualityStatus.VERIFIED, QualityStatus.WARNING})
+_LAYOUT_WARNINGS = frozenset({"reading_order_uncertain", "table_detected"})
 _PENDING_CONTENT = {
     "paragraph": ContentType.PARAGRAPH,
     "list_item": ContentType.LIST_ITEM,
@@ -44,6 +47,7 @@ _PENDING_CONTENT = {
 }
 # A caption is attached to a table when it lies within this share of the page height from the table box.
 _CAPTION_REACH = 0.15
+_TABLE_CAPTION = re.compile(r"^table\s+\d+[a-z]?\s*[.:–—-]", re.IGNORECASE)
 
 
 def _sha256(path: Path) -> str:
@@ -82,6 +86,55 @@ def _spans(lines: Sequence[Line], raw: str) -> list[tuple[int, int]]:
     return spans
 
 
+def _overlap(first: Box, second: Box) -> tuple[float, float]:
+    return min(first[2], second[2]) - max(first[0], second[0]), min(first[3], second[3]) - max(first[1], second[1])
+
+
+def _locally_readable_lines(page: ExtractedPage, plan: PagePlan | None) -> frozenset[int]:
+    """Find native body lines unaffected by a layout warning elsewhere on their page."""
+    warnings = {issue.code for issue in page.issues if issue.severity == "warning"}
+    if (
+        plan is None
+        or page.quality_status != QualityStatus.WARNING
+        or page.extraction_method != ExtractionMethod.NATIVE_TEXT
+        or page.hidden_chars != 0
+        or not warnings
+        or not warnings <= _LAYOUT_WARNINGS
+        or ("table_detected" in warnings and not plan.tables)
+    ):
+        return frozenset()
+
+    lines = sorted((line for block in page.blocks for line in block.lines), key=lambda line: line.bbox[1])
+    overlapping: set[int] = set()
+    for index, first in enumerate(lines):
+        for second_index in range(index + 1, len(lines)):
+            second = lines[second_index]
+            if second.bbox[1] >= first.bbox[3]:
+                break
+            # Adjacent baselines often have slightly overlapping font boxes. A line that reaches the
+            # middle of another line at the same horizontal position needs a manual layout check.
+            width, height = _overlap(first.bbox, second.bbox)
+            shorter = min(first.bbox[3] - first.bbox[1], second.bbox[3] - second.bbox[1])
+            if width > 0 and height > shorter / 2:
+                overlapping.update((first.raw_start, second.raw_start))
+    tables_verified = not plan.issues and len(plan.cells) == page.table_count
+    return frozenset(
+        rec.line.raw_start for rec in plan.recs
+        if not rec.vertical and rec.line.raw_start not in overlapping and (
+            tables_verified or (rec.table is None and all(min(_overlap(rec.bbox, table.bbox)) <= 0 for table in plan.tables))
+        )
+    )
+
+
+@dataclass(frozen=True)
+class _TableEnd:
+    pdf_page: int
+    section_id: str | None
+    caption: str
+    header: tuple[str, ...]
+    edges: tuple[float, float]
+
+
 class _Emitter:
     """Turns the planned pages into units, sections and table cells, in document order."""
 
@@ -97,11 +150,14 @@ class _Emitter:
         self.stack: list[Section] = []
         self.open_intro: str | None = None
         self.page: ExtractedPage | None = None
+        self.readable_lines: frozenset[int] = frozenset()
         self.ordinal = 0
         self.tables_on_page = 0
+        self.table_end: _TableEnd | None = None
 
-    def start_page(self, page: ExtractedPage) -> None:
+    def start_page(self, page: ExtractedPage, plan: PagePlan | None) -> None:
         self.page = page
+        self.readable_lines = _locally_readable_lines(page, plan)
         self.ordinal = 0
         self.tables_on_page = 0
 
@@ -123,6 +179,17 @@ class _Emitter:
             return QualityStatus.UNVERIFIED
         if warn and page_quality == QualityStatus.VERIFIED:
             return QualityStatus.WARNING
+        if not warn and self.readable_lines and all(line.raw_start in self.readable_lines for line in lines):
+            profile = text_profile(_text(lines))
+            # A unit must follow one vertical run. In particular, don't certify a row made by
+            # joining two columns, or a line folded back into the previous paragraph.
+            ordered = all(
+                first.bbox[1] < second.bbox[1]
+                and min(first.bbox[2], second.bbox[2]) > max(first.bbox[0], second.bbox[0])
+                for first, second in zip(lines, lines[1:])
+            )
+            if ordered and not (profile.replacement_chars or profile.control_chars):
+                return QualityStatus.VERIFIED
         return page_quality
 
     def add(
@@ -262,11 +329,34 @@ class _Emitter:
         best = None
         best_gap = None
         for caption in plan.captions:
+            if not _TABLE_CAPTION.match(caption.text):
+                continue
             caption_box = caption.bbox
             gap = max(0.0, table_box[1] - caption_box[3], caption_box[1] - table_box[3])
             if gap <= reach and (best_gap is None or gap < best_gap):
                 best, best_gap = caption, gap
         return best.text if best is not None else None
+
+    def _continued_caption(
+        self, plan: PagePlan, table_box: Box, header: tuple[str, ...], caption: str | None,
+    ) -> str | None:
+        page = self._page()
+        previous = self.table_end
+        self.table_end = None
+        if len(header) < 2 or not all(header):
+            return caption
+        edges = (table_box[0], table_box[2])
+        section_id = self._section_id()
+        if (
+            caption is None and previous is not None and self.tables_on_page == 1 and not plan.issues
+            and page.pdf_page == previous.pdf_page + 1 and section_id == previous.section_id
+            and table_box[1] <= 0.18 * page.height and previous.header == header
+            and all(abs(a - b) <= 2 for a, b in zip(edges, previous.edges, strict=True))
+        ):
+            caption = previous.caption
+        if caption is not None and not plan.issues and table_box[3] >= 0.85 * page.height:
+            self.table_end = _TableEnd(page.pdf_page, section_id, caption, header, edges)
+        return caption
 
     def _emit_table(self, page: ExtractedPage, plan: PagePlan, table_index: int) -> None:
         geometry = plan.tables[table_index]
@@ -278,6 +368,10 @@ class _Emitter:
         header = {column: _text([rec.line for rec in cells[(0, column)]]) if (0, column) in cells else "" for column in range(column_count)}
         filled = [value for value in header.values() if value]
         uncertain = bool(filled) and all(_NUMERIC_TEXT.match(value) for value in filled)
+        if not uncertain:
+            caption = self._continued_caption(plan, geometry.bbox, tuple(header.values()), caption)
+        else:
+            self.table_end = None
         if uncertain:
             self.issues.append(
                 StructureIssue(
@@ -414,8 +508,8 @@ def build_structure(
 
     emitter = _Emitter(extracted, settings, body, size_levels)
     for page in extracted.pages:
-        emitter.start_page(page)
         plan = plans.get(page.pdf_page)
+        emitter.start_page(page, plan)
         if plan is None:
             emitter.emit_unstructured(page)
         else:

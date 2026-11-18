@@ -8,7 +8,7 @@ without supported evidence returns a status and the passages that were examined.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from app.conflict import ConflictConfig, load_conflict_config
 from app.conflict.detector import ConflictScreen, Impact, Relation, screen_component
@@ -34,10 +34,12 @@ from app.decision.response import (
     relation_reason_code,
 )
 from app.document_structure.models import EvidenceUnit
+from app.evidence.extractive import EXTRACTIVE_TYPES, allows_multiple, intent_for
 from app.evidence.selection import AnswerCandidate, ComponentSelection, ComponentStatus, select_candidates
 from app.ingestion.models import QualityStatus
 from app.question_processing.analysis import QuestionAnalysis, QuestionComponent, QuestionType, analyze
 from app.retrieval.bm25 import RetrievalResult, search
+from app.retrieval.clauses import ClauseIndex
 from app.retrieval.config import RetrievalConfig, load_retrieval_config
 from app.retrieval.rules import RuleSet
 from app.storage import Store
@@ -180,13 +182,23 @@ def answer(
     retrieved, units = _retrieve(store, document_id, analysis, settings, rules)
     selection = select_candidates(analysis, retrieved, units)
     decided: list[_Decided] = []
+    clauses: ClauseIndex | None = None
     for component, component_selection in zip(analysis.components, selection.components):
         judgements = tuple(
             _judge(candidate, analysis, store, document_id, active_policy)
             for candidate in component_selection.candidates
         )
         screen = screen_component(store, document_id, component, active_conflicts)
-        decided.append(_decide(component, component_selection, judgements, screen))
+        item = _decide(component, component_selection, judgements, screen)
+        if _try_extractive(item):
+            if clauses is None:
+                clauses = ClauseIndex(store, document_id)
+            recovered = _recover(item, clauses, analysis, store, document_id, active_policy, settings.k)
+            if recovered is not None:
+                item, found_units = recovered
+                units.update((unit.evidence_id, unit) for unit in found_units)
+                retrieved[component.component_id] = _record_extractive(retrieved[component.component_id], item.judgements)
+        decided.append(item)
     response = _respond(analysis, decided, retrieved, units, store, document_id, active_policy)
     notice = _unread_page_notice(store.page_rows(document_id))
     if notice is None:
@@ -246,6 +258,116 @@ def _judge(
     report = verify(candidate, analysis, store, document_id)
     accepted = accepts(report, policy)
     return _Judgement(candidate, report, accepted, relaxed_checks(report, policy) if accepted else ())
+
+
+def _try_extractive(item: _Decided) -> bool:
+    component = item.component
+    if not component.searchable or item.screen.relations or component.question_type not in EXTRACTIVE_TYPES:
+        return False
+    if item.status in {DecisionStatus.INSUFFICIENT_EVIDENCE, DecisionStatus.SOURCE_UNVERIFIED}:
+        return True
+    if item.status != DecisionStatus.ANSWERED:
+        return False
+    # These questions can need a more precise span in the same, already accepted passage.
+    return component.text.lower().startswith(("how many ", "may ")) or any(
+        judge.accepted and (judge.candidate.answer_span or "").lower().startswith(("is not ", "are not "))
+        for judge in item.judgements
+    )
+
+
+def _same_passage(first: AnswerCandidate, second: AnswerCandidate) -> bool:
+    return (first.evidence_id, first.page_start, first.page_end) == (second.evidence_id, second.page_start, second.page_end)
+
+
+def _recover(
+    previous: _Decided,
+    index: ClauseIndex,
+    analysis: QuestionAnalysis,
+    store: Store,
+    document_id: str,
+    policy: AcceptancePolicy,
+    limit: int,
+) -> tuple[_Decided, tuple[EvidenceUnit, ...]] | None:
+    intent = intent_for(previous.component)
+    ranked = index.rank(intent)
+    if not ranked:
+        return None
+    accepted_before = [judge.candidate for judge in previous.judgements if judge.accepted]
+    refining = previous.status == DecisionStatus.ANSWERED
+    multiple = allows_multiple(intent) and not refining
+    tolerance = 0.20 if multiple else 0.055
+    proposals: list[tuple[_Judgement, EvidenceUnit]] = []
+    for rank, entry in enumerate(ranked, start=1):
+        if entry.score < ranked[0].score - tolerance or len(proposals) >= 8:
+            break
+        candidate = entry.candidate(intent, rank)
+        if refining and not any(_same_passage(candidate, earlier) for earlier in accepted_before):
+            continue
+        proposals.append((_judge(candidate, analysis, store, document_id, policy), entry.unit))
+    accepted = [(judge, unit) for judge, unit in proposals if judge.accepted]
+    if not accepted:
+        source_only = [(judge, unit) for judge, unit in proposals if _source_blocked(judge.report)]
+        if source_only and not refining:
+            judgements = tuple(judge for judge, _ in source_only)
+            unresolved = replace(
+                previous,
+                judgements=judgements,
+                status=DecisionStatus.SOURCE_UNVERIFIED,
+                reason_codes=(ReasonCode.SOURCE_QUALITY,),
+                reasons=_check_reasons(judgements),
+            )
+            return unresolved, tuple(unit for _, unit in source_only)
+        return None
+    if refining:
+        if len(accepted_before) != 1 or accepted[0][0].candidate.answer_span == accepted_before[0].answer_span:
+            return None
+        accepted = accepted[:1]
+    elif not multiple:
+        distinct = {_answer_key(judge.candidate) for judge, _ in proposals}
+        if len(distinct) > 1:
+            return replace(
+                previous, judgements=tuple(judge for judge, _ in proposals), status=DecisionStatus.AMBIGUOUS_QUERY,
+                reason_codes=(ReasonCode.POTENTIAL_DISCREPANCY,),
+                reasons=("Multiple passages support different answers for this question.",),
+            ), tuple(unit for _, unit in proposals)
+        accepted = accepted[:1]
+    else:
+        seen: set[str] = set()
+        chosen: list[tuple[_Judgement, EvidenceUnit]] = []
+        for judge, unit in accepted:
+            key = _answer_key(judge.candidate)
+            if key not in seen:
+                seen.add(key)
+                chosen.append((judge, unit))
+        accepted = chosen[:min(3, limit)]
+    judgements = tuple(judge for judge, _ in accepted)
+    codes = (ReasonCode.ANSWER_VERIFIED,)
+    if any(judge.relaxed for judge in judgements):
+        codes += (ReasonCode.RELAXED_GATE_USED,)
+    recovered = replace(
+        previous,
+        judgements=judgements,
+        status=DecisionStatus.ANSWERED,
+        reason_codes=codes,
+        reasons=("The clause rule found a verbatim answer with the requested scope.",),
+    )
+    return recovered, tuple(unit for _, unit in accepted)
+
+
+def _answer_key(candidate: AnswerCandidate) -> str:
+    return " ".join((candidate.answer_span or "").casefold().split())
+
+
+def _record_extractive(result: RetrievalResult, judgements: tuple[_Judgement, ...]) -> RetrievalResult:
+    ordered = {judge.candidate.evidence_id: judge.candidate.retrieval for judge in judgements}
+    for candidate in result.candidates:
+        ordered.setdefault(candidate.evidence_id, candidate)
+    depth = result.trace.k + result.trace.expansion_k
+    candidates = tuple(
+        replace(candidate, rank=rank)
+        for rank, candidate in enumerate(list(ordered.values())[:depth], start=1)
+    )
+    return replace(result, candidates=candidates, trace=replace(result.trace, statistics="weighted_clause_match"))
 
 
 def _relations(screen: ConflictScreen, impact: Impact) -> list[Relation]:
@@ -434,6 +556,7 @@ def _retrieval_summary(component_id: str, result: RetrievalResult) -> RetrievalS
                 via=candidate.via,
                 rule_ids=candidate.rule_ids,
                 raw_bm25=candidate.bm25_raw,
+                lexical_score=candidate.lexical_score,
             )
             for candidate in result.candidates
         ),

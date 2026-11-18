@@ -135,12 +135,14 @@ def test_running_headers_and_page_numbers_are_kept_but_not_body_retrieval(built)
     assert not any(fixtures.RUNNING_HEADER == unit.raw_text for unit in body)
 
 
-def test_units_keep_the_page_numbers_and_quality_of_their_page(built):
+def test_units_keep_page_numbers_and_clean_text_survives_a_layout_warning(built):
     extracted, structure, _ = built
     qualities = {page.pdf_page: page.quality_status.value for page in extracted.pages}
     for unit in structure.units:
         assert unit.pdf_page in qualities
-        assert unit.extraction_quality.value != "verified" or qualities[unit.pdf_page] == "verified"
+    assert qualities[1] == "warning"
+    assert any(unit.content_type == ContentType.PARAGRAPH and unit.pdf_page == 1
+               and unit.extraction_quality.value == "verified" for unit in structure.units)
     assert {unit.printed_page for unit in structure.units} == {None}
 
 

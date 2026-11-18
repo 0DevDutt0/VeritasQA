@@ -32,6 +32,7 @@ RULE_IDS: dict[QuestionType, str] = {
     QuestionType.WHICH: "which.sentence.v1",
     QuestionType.WHEN: "when.date_or_period.v1",
     QuestionType.HOW_MANY: "how_many.value_with_unit.v1",
+    QuestionType.HOW: "how.sentence.v1",
     QuestionType.WHETHER: "whether.permission_marker.v1",
     QuestionType.CONDITIONS: "conditions.passage.v1",
     QuestionType.COMPARISON: "comparison.subject_sentence.v1",
