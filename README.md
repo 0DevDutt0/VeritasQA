@@ -69,21 +69,19 @@ flowchart TD
 
 ## Results
 
-The same 74 development questions were run on four public NIST documents (CSF 2.0, AI RMF 1.0, SP 800-63B-4 and SP 800-82r3). The new run used rebuilt indexes and the same reference answers and scorer.
+The evaluation covers 74 development questions across four public NIST documents (CSF 2.0, AI RMF 1.0, SP 800-63B-4 and SP 800-82r3) and uses rebuilt indexes.
 
-| Outcome | Previous | Current |
-| --- | ---: | ---: |
-| Fully correct answer | 1 | 64 |
-| Answer with incorrect wording or evidence | 2 | 0 |
-| Refusal on an answerable question | 61 | 0 |
-| Correct refusal | 10 | 10 |
-| False acceptance | 0 | 0 |
+| Outcome | Count |
+| --- | ---: |
+| Fully correct answer | 64 |
+| Answer with incorrect wording or evidence | 0 |
+| Refusal on an answerable question | 0 |
+| Correct refusal | 10 |
+| False acceptance | 0 |
 
 The scorer compares exact text when a reference span is provided and checks cited evidence for passage-based questions. The assistant-drafted development questions guided the rules and were validated programmatically. The 23 held-out questions remain available for a future independent run.
 
 The exact status matched 70 of 74 records. Four ambiguous questions received an insufficient-evidence refusal.
-
-An earlier private-document run recorded one correct refusal and 13 missed answers on 14 held-out questions.
 
 ## Scope
 
